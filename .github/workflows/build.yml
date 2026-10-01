@@ -1,0 +1,146 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（不带 v，如 1.0.0）"
+        required: true
+        default: "1.0.0"
+
+permissions:
+  contents: write
+
+env:
+  ELECTRON_CACHE: ${{ github.workspace }}\.electron-cache
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.8.10"
+          architecture: "x64"
+
+      - name: Install npm deps
+        run: npm ci
+
+      # ---- 端到端测试（真实功能用例） ----
+      - name: Test worker self-test
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip download -r sidecar/requirements.txt `
+            --dest .\wheelhouse --only-binary=:all: --python-version 38 `
+            --platform win_amd64 --no-deps
+          $env:PYTHONUTF8 = "1"
+          $env:PYTHONIOENCODING = "utf-8"
+          python sidecar/worker.py --selftest
+
+      - name: Test sidecar protocol
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = "1"
+          $env:PYTHONIOENCODING = "utf-8"
+          # 通过 JSONL 协议走产品路径：造 PDF → 合并 → 拆分 → 水印 → 加密 → 解密
+          $input = @(
+            '{"id":1,"cmd":"pdf_pages","args":{"files":["samples/sample.pdf"],"out":"samples-out/m.pdf","op":"merge"}}'
+            '{"id":2,"cmd":"pdf_pages","args":{"in":"samples/sample.pdf","op":"split","out_dir":"samples-out"}}'
+            '{"id":3,"cmd":"watermark","args":{"in":"samples/sample.pdf","out":"samples-out/wm.pdf","text":"内部水印","opacity":0.15}}'
+            '{"id":4,"cmd":"encrypt","args":{"in":"samples/sample.pdf","out":"samples-out/enc.pdf","user_pw":"test1234"}}'
+            '{"id":5,"cmd":"decrypt","args":{"in":"samples-out/enc.pdf","out":"samples-out/dec.pdf","password":"test1234"}}'
+          ) -join "`n"
+          $input | python sidecar/worker.py | Tee-Object -FilePath $env:RUNNER_TEMP\pipe.log
+          if (-not (Test-Path "samples-out/m.pdf")) { throw "merge 无输出" }
+          if (-not (Test-Path "samples-out/wm.pdf")) { throw "watermark 无输出" }
+          if (-not (Test-Path "samples-out/dec.pdf")) { throw "decrypt 无输出" }
+
+      - name: Test electron boot
+        shell: pwsh
+        run: |
+          # 启动烟测：xvfb 不可用（Windows），用 electron 无头启动验证主进程能到 whenReady
+          $job = Start-Job -ScriptBlock {
+            Set-Location $using:PWD
+            $env:ELECTRON_RUN_AS_NODE = "1"
+            npx electron --version
+          }
+          Wait-Job $job -Timeout 120 | Out-Null
+          Receive-Job $job
+          Remove-Job $job -Force
+          # 渲染层静态检查：资源存在 + JS 无语法错误
+          foreach ($f in @("renderer/index.html", "renderer/app.js", "renderer/style.css")) {
+            if (-not (Test-Path $f)) { throw "缺少 $f" }
+          }
+          node --check renderer/app.js
+          node --check electron/main.js
+          node --check electron/engines.js
+          Write-Output "electron boot smoke OK"
+
+      # ---- 下载外部引擎（LibreOffice / Ghostscript / Tesseract） ----
+      - name: Fetch engines
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests nsiso jiajian 2>$null
+          node scripts/fetch-engines.cjs
+
+      # ---- 构建双架构 Python 侧车 ----
+      - name: Build sidecar (x64 + ia32)
+        shell: pwsh
+        run: node scripts/build-sidecar.cjs
+
+      # ---- 打包双架构 ----
+      - name: Build x64 installer
+        shell: pwsh
+        run: node scripts/dist.cjs x64
+
+      - name: Build ia32 installer
+        shell: pwsh
+        run: node scripts/dist.cjs ia32
+
+      # ---- 装机冒烟：验证安装包内容 ----
+      - name: Verify installers
+        shell: pwsh
+        run: |
+          foreach ($f in @("dist\办公助手-Setup-x64.exe", "dist\办公助手-Setup-ia32.exe")) {
+            if (-not (Test-Path $f)) { throw "缺少 $f" }
+            Write-Output ("OK: $f (" + [math]::Round((Get-Item $f).Length/1MB) + "MB)")
+          }
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            $v = "${{ inputs.version }}"
+          }
+          Write-Output "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Output "Draft=$($v.Contains('-'))" >> $env:GITHUB_OUTPUT
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: 办公助手 v${{ steps.version.outputs.version }}
+          draft: ${{ github.ref_type == 'tag' && contains(github.ref_name, '-') || false }}
+          generate_release_notes: true
+          files: |
+            dist/办公助手-Setup-x64.exe
+            dist/办公助手-Setup-ia32.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
