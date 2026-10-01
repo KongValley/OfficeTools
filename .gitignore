@@ -3,4 +3,5 @@ dist/
 engines/
 staging/
 samples-out/
+.build-cache/
 *.log

@@ -125,20 +125,27 @@ jobs:
         id: version
         shell: pwsh
         run: |
+          # tag 推送（推荐）：直接取 tag 名；手动触发：取输入框版本号
           if ("${{ github.ref_type }}" -eq "tag") {
             $v = "${{ github.ref_name }}".TrimStart("v")
-          } else {
+          } elseif ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $v = "${{ inputs.version }}"
+          } else {
+            $v = "1.0.0"
           }
           Write-Output "version=$v" >> $env:GITHUB_OUTPUT
-          Write-Output "Draft=$($v.Contains('-'))" >> $env:GITHUB_OUTPUT
+          # 含预发布标记（-beta/-rc 等）→ 草稿，否则直接发布
+          $isPre = $v.Contains("-")
+          Write-Output ("prerelease=" + $isPre) >> $env:GITHUB_OUTPUT
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: 办公助手 v${{ steps.version.outputs.version }}
-          draft: ${{ github.ref_type == 'tag' && contains(github.ref_name, '-') || false }}
+          draft: false
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          fail_on_unmatched_files: true
           generate_release_notes: true
           files: |
             dist/办公助手-Setup-x64.exe
