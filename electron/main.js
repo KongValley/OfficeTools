@@ -78,8 +78,10 @@ function ensureUnique(p) {
 }
 
 function outDirFor(file, settings) {
-  return settings.outDirMode === "fixed" && settings.fixedOutDir
-    ? settings.fixedOutDir : path.dirname(file);
+  const dir = settings.outDirMode === "fixed" && settings.fixedOutDir
+    // 用户在设置里手输/粘贴的目录可能带正斜杠，规范化后 join 才不会产生混合路径
+    ? settings.fixedOutDir.replace(/\//g, "\\") : path.dirname(file);
+  return dir;
 }
 
 async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
@@ -275,7 +277,11 @@ ipcMain.handle("stat-files", (e, files) => (Array.isArray(files) ? files : []).m
 ipcMain.handle("get-settings", () => loadSettings());
 ipcMain.handle("set-settings", (e, cfg) => { saveSettings(cfg); return { ok: true }; });
 ipcMain.handle("open-log-dir", () => shell.openPath(LOG_DIR));
-ipcMain.handle("open-out", (e, p) => (p ? shell.showItemInFolder(p) : undefined));
+// 资源管理器/ShellExecute 不接受正斜杠混合路径（Electron 拖拽 File.path 即如此），
+// 统一规范化为反斜杠后再打开；用 openPath 开所在目录而非 showItemInFolder 选中文件
+//（后者对中文/混合路径会弹"找不到文件"）。
+ipcMain.handle("open-out", (e, p) => (
+  p ? shell.openPath(path.dirname(String(p).replace(/\//g, "\\"))) : undefined));
 ipcMain.handle("select-files", async () => {
   const r = await dialog.showOpenDialog({
     properties: ["openFile", "multiSelections"],

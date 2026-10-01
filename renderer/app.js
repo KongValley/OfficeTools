@@ -8,6 +8,9 @@
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // Electron 拖拽给的 File.path 带正斜杠（C:/Users/...），ShellExecute/资源管理器不接受
+  // 混合斜杠路径（"打开"会弹"找不到文件"）。入口统一规范化，下游显示/sidecar/stat 全走反斜杠。
+  const norm = (p) => String(p).replace(/\//g, "\\");
 
   /* ---------- 页面定义 ---------- */
   const PAGES = [
@@ -506,7 +509,8 @@
       d.addEventListener("dragleave", () => d.classList.remove("over"));
       d.addEventListener("drop", (e) => {
         e.preventDefault(); d.classList.remove("over");
-        const files = Array.from(e.dataTransfer.files).map((f) => f.path);
+        // File.path 是正斜杠混合路径，norm 成反斜杠（否则 sidecar/stat/open 全出错）
+        const files = Array.from(e.dataTransfer.files).map((f) => norm(f.path));
         if (files.length) setFiles(state.files.concat(files));
       });
     });
