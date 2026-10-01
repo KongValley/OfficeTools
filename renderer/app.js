@@ -604,15 +604,15 @@
     $("#op-hint").textContent = {
       merge: "按住 Ctrl 多选（或拖入多个文件），按所选顺序合成一个 PDF。每个文件可在下方列表中填页码（如 1,3-5），留空=全部页。",
       split: "按下方列表中每个文件填的页码拆成单页 PDF（如填 2,5 只出 _p2/_p5），留空=每页都拆。",
-      extract: "提取指定页码为新 PDF，如 1,3-5。",
+      extract: "按下方列表中每个文件填的页码提取为新 PDF（每个文件独立，各输出 原名-提取.pdf），留空=只取第 1 页。",
       delete: "按下方列表中每个文件填的页码删除页面（每个文件独立），留空=不删页（输出与原文件一致）。",
       rotate: "全部页面或指定页码旋转。",
     }[v] || "";
-    // 全局页码框只剩 extract/rotate 用（单文件场景）；merge/split/delete 走行内每文件输入
-    show(v === "extract", v === "rotate");
-    // 每文件页码输入框：merge/split/delete 显示，三个 op 均为每文件独立
-    $("#file-list-pages").classList.toggle("show-spec",
-      v === "merge" || v === "split" || v === "delete");
+    // 全局页码框只剩 rotate 用；merge/split/delete/extract 全走行内每文件输入
+    const perFile = v === "merge" || v === "split" || v === "delete" || v === "extract";
+    show(!perFile, v === "rotate");
+    // 每文件页码输入框：merge/split/delete/extract 显示，四个 op 均为每文件独立
+    $("#file-list-pages").classList.toggle("show-spec", perFile);
   }
 
   function bindConvert() {
@@ -627,8 +627,8 @@
     $("#go-pages").addEventListener("click", () => {
       const op = $("#op-sel").value;
       const opts = { pages: $("#op-pages").value.trim(), rotate: $("#op-rotate").value };
-      // merge/split/delete：每文件页码串按下标对齐（留空语义见各 op 提示）
-      if (op === "merge" || op === "split" || op === "delete") {
+      // merge/split/delete/extract：每文件页码串按下标对齐（留空语义见各 op 提示）
+      if (op === "merge" || op === "split" || op === "delete" || op === "extract") {
         opts.pageSpecs = state.files.map((f) => fileSpecs.get(f) || "");
       }
       submit("pdf_" + (op === "merge" ? "merge" : op), opts);

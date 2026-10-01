@@ -127,8 +127,11 @@ def cmd_pdf_pages(args):
         return {"ok": True, "data": first}
 
     if op in ("extract", "delete"):
+        spec = (args.get("pages") or "").strip()
+        # extract 留空 = 取第 1 页（doc.select([]) 会产出 0 页 PDF，不可用）
+        # delete 留空 = 不删页
         try:
-            idx = parse_pages(args["pages"], n)
+            idx = parse_pages(spec, n) if spec else ([0] if op == "extract" else [])
         except ValueError as e:
             return _err(str(e))
         if op == "extract":
@@ -930,6 +933,15 @@ def selftest():
         runner.check("pdf_delete", "pdf_pages",
                      {"in": merged, "out": dele, "op": "delete", "pages": "1"},
                      verify=lambda d: None if d.get("pages") == 9 else f"期望9页实得{d.get('pages')}")
+        # 留空语义：extract=第1页；delete=不删
+        ext0 = os.path.join(outdir, "提取留空.pdf")
+        runner.check("pdf_extract(empty)", "pdf_pages",
+                     {"in": merged, "out": ext0, "op": "extract", "pages": ""},
+                     verify=lambda d: None if d.get("pages") == 1 else f"期望1页实得{d.get('pages')}")
+        dele0 = os.path.join(outdir, "删页留空.pdf")
+        runner.check("pdf_delete(empty)", "pdf_pages",
+                     {"in": merged, "out": dele0, "op": "delete", "pages": ""},
+                     verify=lambda d: None if d.get("pages") == 10 else f"期望10页实得{d.get('pages')}")
         rot = os.path.join(outdir, "旋转.pdf")
         runner.check("pdf_rotate", "pdf_pages",
                      {"in": merged, "out": rot, "op": "rotate", "rotate": 90},

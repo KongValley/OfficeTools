@@ -124,7 +124,9 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
     }
     case "pdf_extract": {
       out = path.join(outDir, `${stem}-提取.pdf`);
-      await Engines.runSidecar("pdf_pages", { in: file, out, op: "extract", pages: opts.pages });
+      // 每文件页码串（未填=不提取，输出单页占位），每个文件独立
+      await Engines.runSidecar("pdf_pages", { in: file, out, op: "extract",
+        pages: Array.isArray(opts.pageSpecs) ? (opts.pageSpecs[fileIndex] || "") : opts.pages });
       break;
     }
     case "pdf_delete": {
