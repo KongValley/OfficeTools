@@ -138,6 +138,15 @@ jobs:
           $isPre = $v.Contains("-")
           Write-Output ("prerelease=" + $isPre) >> $env:GITHUB_OUTPUT
 
+      # ---- 发布：复制为 ASCII 名上传（中文名经 action 上传后 asset name 会丢中文前缀）----
+      - name: Stage installers (ASCII names)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\upload | Out-Null
+          Copy-Item "dist\办公助手-Setup-x64.exe" "dist\upload\OfficeKit-Setup-x64.exe" -Force
+          Copy-Item "dist\办公助手-Setup-ia32.exe" "dist\upload\OfficeKit-Setup-ia32.exe" -Force
+          Get-ChildItem dist\upload | ForEach-Object { Write-Output ("staged: " + $_.Name) }
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -148,7 +157,6 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           files: |
-            dist/办公助手-Setup-x64.exe
-            dist/办公助手-Setup-ia32.exe
+            dist/upload/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
