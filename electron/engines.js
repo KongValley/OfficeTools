@@ -9,9 +9,11 @@ const os = require("os");
 const path = require("path");
 
 const ARCH = process.arch === "ia32" ? "ia32" : "x64";
+// 装机态判定：app.asar 内的 __dirname 已含 app.asar（打包后主进程 require 都从这里解析）。
+// electron 22 下 process.defaultApp 在部分时序不为 false，故以 asar 路径特征为准，环境变量显式覆盖。
 const SUFFIX = ARCH === "ia32" ? "-ia32" : "-x64";
 const PACKAGED = process.env.ELECTRON_KIT_PACKAGED === "1"
-  || (process.defaultApp === false && !process.env.ELECTRON_KIT_DEV);
+  || __dirname.includes("app.asar");
 
 // 无 GPU + 老机器：引擎进程不让 OpenMP/线程库按“全部核心”铺开（核心多的编译机会带进 64 线程调度），
 // 统一限到 2（内网机的典型可用核心），既降抖动也避免内存翻倍。可用环境变量覆盖。

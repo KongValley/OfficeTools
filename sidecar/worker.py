@@ -223,11 +223,15 @@ def cmd_watermark(args):
     if not text:
         return _err("水印文字不能为空")
     opacity = float(args.get("opacity", 0.15))
-    angle = int(args.get("rotate", 45))
-    if angle not in (0, 90, 180, 270):
+    # TextWriter morph 用旋转矩阵，任意角度均可（非数值才回落 45）
+    try:
+        angle = int(args.get("rotate", 45))
+    except (TypeError, ValueError):
         angle = 45
     tile = bool(args.get("tile", False))
-    color = (0.5, 0.5, 0.5)
+    # 颜色名 → RGB；未知值回落灰（保持旧默认行为）
+    COLORS = {"gray": (0.5, 0.5, 0.5), "red": (0.9, 0.2, 0.2), "blue": (0.2, 0.4, 0.9)}
+    color = COLORS.get(str(args.get("color") or "gray"), COLORS["gray"])
     # helv 无中文字形（中文水印会变方框/空白）；cjk 为 PyMuPDF 内置 CJK 字体。
     # 本机探针确认 fitz.Font("cjk") 可用且含中文 glyph（1.23.7）。
     try:

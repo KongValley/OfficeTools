@@ -157,7 +157,7 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
         throw new Error("仅支持 PDF 或图片");
       const r = await Engines.runSidecar("ocr", {
         in: file, out_dir: outDir, lang: settings.ocrLang,
-        mode: opts.mode || "txt",
+        mode: opts.mode || "txt", dpi: Number(opts.dpi) || Number(settings.pdfDpi) || 150,
       });
       out = r.out;
       message = r.chars !== undefined ? `识别 ${r.chars} 字` : `共 ${r.pages} 页`;
@@ -177,8 +177,8 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
     case "watermark": {
       out = path.join(outDir, `${stem}-水印.pdf`);
       await Engines.runSidecar("watermark", { in: file, out,
-        text: settings.watermarkText, opacity: Number(settings.watermarkOpacity),
-        rotate: 45, tile: !!settings.watermarkTile });
+        text: opts.text || settings.watermarkText, opacity: Number(opts.opacity ?? settings.watermarkOpacity),
+        rotate: Number(opts.rotate) || 45, color: opts.color || "gray", tile: !!settings.watermarkTile });
       break;
     }
     default:
@@ -232,8 +232,9 @@ async function pump() {
 ipcMain.handle("submit-task", (e, tool, files, options) => {
   if (!TOOLS.has(tool)) return { ok: false, error: "未知工具" };
   if (!Array.isArray(files) || !files.length) return { ok: false, error: "未选择文件" };
-  const id = `t${Date.now()}`;
-  const task = { id, tool, files: files.slice(), options: options || {}, cancelled: false };
+  // 用渲染进程传来的 taskId（否则事件 taskId 对不上，UI 收不到更新）
+  const id = options && options.taskId ? String(options.taskId) : `t${Date.now()}`;
+  const task = { id, tool, files: files.slice(), options, cancelled: false };
   queue.push(task);
   log(`submit task=${id} tool=${tool} files=${files.length}`);
   emit(id, 0, files.length, "", "queued", "排队中");
@@ -246,6 +247,17 @@ ipcMain.handle("cancel-task", (e, taskId) => {
   if (t) { t.cancelled = true; queue.splice(queue.indexOf(t), 1); }
   return { ok: true };
 });
+
+function sizeLabel(bytes) {
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
+  return Math.max(1, Math.round(bytes / 1024)) + " KB";
+}
+
+ipcMain.handle("stat-files", (e, files) => (Array.isArray(files) ? files : []).map((f) => {
+  let label = "-";
+  try { label = sizeLabel(fs.statSync(f).size); } catch (_) {/*文件已移动/删除*/ }
+  return { path: f, sizeLabel: label };
+}));
 
 ipcMain.handle("get-settings", () => loadSettings());
 ipcMain.handle("set-settings", (e, cfg) => { saveSettings(cfg); return { ok: true }; });

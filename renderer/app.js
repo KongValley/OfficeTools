@@ -21,11 +21,30 @@
     { id: "settings", name: "设置" },
   ];
 
+  /* 16px stroke 图标：内联 SVG，零请求零打包改动 */
+  const ICONS = {
+    convert: '<path d="M17 3l4 4-4 4"/><path d="M21 7H8a4 4 0 0 0-4 4v1"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h13a4 4 0 0 0 4-4v-1"/>',
+    pages: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
+    compress: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/><line x1="8" y1="12" x2="16" y2="12"/>',
+    pdf2img: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+    img2pdf: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 12 12 17 22 12"/><polyline points="2 17 12 22 22 17"/>',
+    ocr: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="3" y1="12" x2="21" y2="12"/>',
+    security: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  };
+  const svg = (name, cls) =>
+    `<svg class="${cls || ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+
   let settings = {};
   let currentTask = null;         // 当前任务 id
+  let taskActive = false;         // 任务进行中：控制取消按钮与耗时计时器
+  let taskStartAt = 0, taskElapsed = "";
+  let elapsedTimer = null;
   const taskRows = new Map();     // taskId -> [{file, status, message, out}]
   let filePage = 0;
   const PAGE_SIZE = 50;
+  const sizes = new Map();        // path -> 体积字符串
 
   const state = { files: [] };    // 当前页选择的文件
 
@@ -33,7 +52,7 @@
   function buildNav() {
     const ul = $("#nav-list");
     ul.innerHTML = PAGES.map((p) =>
-      `<li data-page="${p.id}"><span class="ico">▪</span>${p.name}</li>`).join("");
+      `<li data-page="${p.id}">${svg(p.id, "ico")}${p.name}</li>`).join("");
     $$("li", ul).forEach((li) => li.addEventListener("click", () => showPage(li.dataset.page)));
     showPage("convert");
   }
@@ -41,55 +60,109 @@
   function showPage(id) {
     $$("#nav-list li").forEach((li) => li.classList.toggle("active", li.dataset.page === id));
     $$(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + id));
+    emptyHint = EMPTY_HINTS[id] || emptyHint;
     if (id === "settings") refreshSettingsForm();
+    renderFileList();
   }
 
   /* ---------- 通用文件选择 ---------- */
+  /* 按页传入引导文案：空状态除提示外，说明该页接受哪些文件 */
+  const EMPTY_HINTS = {
+    convert: { title: "把 Office 文档拖进来", sub: "支持 doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt 等" },
+    pages: { title: "把 PDF 拖进来", sub: "合并/拆分/提取/删除/旋转页面" },
+    compress: { title: "把 PDF 拖进来", sub: "压缩图片精度以减小体积" },
+    pdf2img: { title: "把 PDF 拖进来", sub: "按 DPI 渲染成 PNG/JPG" },
+    img2pdf: { title: "把图片拖进来", sub: "按当前文件顺序合成 PDF", sortable: true },
+    ocr: { title: "把扫描件拖进来", sub: "支持 PDF 与图片，识别为文本或可搜索 PDF" },
+    security: { title: "把 PDF 拖进来", sub: "AES-256 加密/解密，或添加文字水印" },
+  };
+  let emptyHint = { title: "把文件拖进来，或点击选择" };
+
   function setFiles(files) {
     state.files = files;
     filePage = 0;
     renderFileList();
+    statNewFiles();
   }
 
-  function addDrop(dropEl, inpEl, multi) {
-    const pick = async () => {
-      const files = await window.kit.selectFiles();
-      if (files && files.length) setFiles(multi ? state.files.concat(files) : files);
-    };
-    dropEl.addEventListener("click", pick);
-    dropEl.addEventListener("dragover", (e) => { e.preventDefault(); dropEl.classList.add("over"); });
-    dropEl.addEventListener("dragleave", () => dropEl.classList.remove("over"));
-    dropEl.addEventListener("drop", (e) => {
-      e.preventDefault(); dropEl.classList.remove("over");
-      const files = Array.from(e.dataTransfer.files).map((f) => f.path);
-      if (files.length) setFiles(multi ? state.files.concat(files) : files);
-    });
+  /* 文件体积走 stat-files IPC；失败的路径留空，不阻塞列表渲染 */
+  function statNewFiles() {
+    const fresh = state.files.filter((f) => !sizes.has(f));
+    if (!fresh.length) return;
+    (window.kit && window.kit.statFiles ? window.kit.statFiles(fresh) : Promise.resolve([]))
+      .then((list) => {
+        (list || []).forEach((r) => sizes.set(r.path, r.sizeLabel));
+        renderFileList();
+      })
+      .catch(() => {/*体积缺失不阻塞，显示空*/ });
+  }
+
+  /* 12px 类型图标：按扩展名取色，其他用灰 O */
+  function iconFor(f) {
+    const e = (f.split(".").pop() || "").toLowerCase();
+    const spec = {
+      doc: ["W", "#2563eb"], docx: ["W", "#2563eb"], rtf: ["W", "#2563eb"], odt: ["W", "#2563eb"], txt: ["T", "#2563eb"],
+      xls: ["X", "#16a34a"], xlsx: ["X", "#16a34a"], ods: ["X", "#16a34a"],
+      ppt: ["P", "#ea580c"], pptx: ["P", "#ea580c"], odp: ["P", "#ea580c"],
+      pdf: ["D", "#dc2626"],
+      png: ["I", "#9333ea"], jpg: ["I", "#9333ea"], jpeg: ["I", "#9333ea"],
+      bmp: ["I", "#9333ea"], gif: ["I", "#9333ea"], tif: ["I", "#9333ea"], tiff: ["I", "#9333ea"], webp: ["I", "#9333ea"],
+    }[e] || ["O", "#94a3b8"];
+    return `<svg class="fi-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="4" fill="${spec[1]}" fill-opacity=".12" stroke="${spec[1]}" stroke-width="1.5"/>
+      <text x="12" y="16.5" text-anchor="middle" font-size="11" font-family="Arial" fill="${spec[1]}">${spec[0]}</text></svg>`;
   }
 
   function renderFileList() {
     const el = $("#file-list");
     if (!el) return;
+    const countEl = $("#file-count");
+    if (countEl) countEl.textContent = state.files.length ? `已选 ${state.files.length} 个文件` : "";
     if (!state.files.length) {
-      el.innerHTML = '<div class="empty">尚未选择文件</div>';
+      el.innerHTML = `<div class="empty empty-lg">
+        ${svg("pages")}<div class="em">${emptyHint.title}</div>
+        <div class="es">${emptyHint.sub || ""}</div></div>`;
       $("#pager").innerHTML = "";
       return;
     }
     const start = filePage * PAGE_SIZE;
     const slice = state.files.slice(start, start + PAGE_SIZE);
+    const sortable = !!emptyHint.sortable;
     el.innerHTML = slice.map((f, i) => `
-      <div class="fi"><span class="nm">${esc(f)}</span>
-      <button class="small" data-rm="${start + i}">移除</button></div>`).join("");
+      <div class="fi">${iconFor(f)}<span class="nm">${esc(f)}</span>
+      <span class="sz">${esc(sizes.get(f) || "")}</span>
+      <span class="ops">${sortable ? `
+        <button class="link" data-up="${start + i}" title="上移">↑</button>
+        <button class="link" data-down="${start + i}" title="下移">↓</button>` : ""}
+      <button class="small" data-rm="${start + i}">移除</button></span></div>`).join("");
     $$("[data-rm]", el).forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
       state.files.splice(Number(b.dataset.rm), 1);
       renderFileList();
     }));
+    const move = (i, d) => {
+      if (i + d < 0 || i + d >= state.files.length) return;
+      const t = state.files[i];
+      state.files[i] = state.files[i + d];
+      state.files[i + d] = t;
+      // 翻页边界：被移项的页位置可能跨页，回退到可见页
+      renderFileList();
+    };
+    $$("[data-up]", el).forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation(); move(Number(b.dataset.up), -1);
+    }));
+    $$("[data-down]", el).forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation(); move(Number(b.dataset.down), 1);
+    }));
     const pages = Math.max(1, Math.ceil(state.files.length / PAGE_SIZE));
-    $("#pager").innerHTML = state.files.length > PAGE_SIZE ? `
+    $("#pager").innerHTML = `${state.files.length > PAGE_SIZE ? `
       <span>共 ${state.files.length} 个</span>
       <button class="small" id="pg-prev" ${filePage === 0 ? "disabled" : ""}>上一页</button>
       <span>${filePage + 1}/${pages}</span>
-      <button class="small" id="pg-next" ${filePage >= pages - 1 ? "disabled" : ""}>下一页</button>` : "";
+      <button class="small" id="pg-next" ${filePage >= pages - 1 ? "disabled" : ""}>下一页</button>` : ""}
+      <button class="link" id="file-clear">清空</button>`;
+    const clear = $("#file-clear");
+    if (clear) clear.addEventListener("click", () => setFiles([]));
     const pp = $("#pg-prev"), pn = $("#pg-next");
     if (pp) pp.addEventListener("click", () => { filePage--; renderFileList(); });
     if (pn) pn.addEventListener("click", () => { filePage++; renderFileList(); });
@@ -100,48 +173,109 @@
     if (!state.files.length) { alert("请先选择文件"); return; }
     currentTask = "t" + Date.now();
     taskRows.set(currentTask, state.files.map((f) => ({ file: f, status: "queued", message: "" })));
+    taskActive = true;
+    taskStartAt = Date.now();
+    taskElapsed = "";
     renderTaskPanel();
-    window.kit.submitTask(tool, state.files.slice(), options);
+    window.kit.submitTask(tool, state.files.slice(), { taskId: currentTask, ...options })
+      .then((r) => { if (r && !r.ok) showSubmitError(r.error || "提交失败"); })
+      .catch((e) => showSubmitError(String(e && e.message || e)));
+  }
+
+  function showSubmitError(msg) {
+    const rows = taskRows.get(currentTask);
+    if (rows) { rows.forEach((r) => { r.status = "error"; r.message = msg; }); taskActive = false; renderTaskPanel(); }
+  }
+
+  function elapsedText() {
+    if (!taskStartAt) return "";
+    return ((Date.now() - taskStartAt) / 1000).toFixed(1) + "s";
+  }
+
+  function stopElapsedTimer() {
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  }
+
+  function taskFinishing() {
+    taskActive = false;
+    stopElapsedTimer();
+    taskElapsed = elapsedText();
+    renderTaskPanel();
   }
 
   function renderTaskPanel() {
     const tbody = $("#task-body");
     if (!tbody) return;
     const rows = taskRows.get(currentTask) || [];
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="4">暂无任务</td></tr>'; return; }
+    const progress = $("#task-progress");
+    const cancelBtn = $("#btn-cancel");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5">暂无任务</td></tr>';
+      $("#task-summary").textContent = "";
+      $("#btn-open-out").style.display = "none";
+      if (cancelBtn) cancelBtn.style.display = "none";
+      if (progress) progress.style.width = "0%";
+      return;
+    }
     const start = filePage * PAGE_SIZE;
     const slice = rows.slice(start, start + PAGE_SIZE);
     const STATUS = { queued: "等待", running: "处理中", done: "完成", error: "失败",
       cancelled: "已取消", finished: "结束" };
     tbody.innerHTML = slice.map((r, i) => `
       <tr><td>${start + i + 1}</td><td class="file">${esc(r.file)}</td>
-      <td class="st st-${r.status}">${STATUS[r.status] || r.status}</td>
-      <td>${esc(r.message || "")}</td></tr>`).join("");
-    const done = rows.filter((r) => r.status === "done" || r.status === "error").length;
-    $("#task-summary").textContent = `任务 ${currentTask}：共 ${rows.length} 个，已完成 ${done}`;
+      <td><span class="badge badge-${r.status}">${STATUS[r.status] || r.status}</span></td>
+      <td>${esc(r.message || "")}${r.status === "done" && r.out ? ' <button class="link" data-open="1">打开</button>' : ""}</td></tr>`).join("");
+    // 打开按钮按行重绑（innerHTML 重建后旧监听失效）
+    slice.forEach((r, i) => {
+      const btn = tbody.children[i] && tbody.children[i].querySelector("[data-open]");
+      if (btn) btn.addEventListener("click", () => window.kit.openOut(r.out));
+    });
+    const done = rows.filter((r) => r.status === "done").length;
+    const failed = rows.filter((r) => r.status === "error").length;
+    const settled = done + failed;
+    if (progress) progress.style.width = (settled / rows.length * 100).toFixed(1) + "%";
+    $("#task-summary").textContent = taskActive
+      ? `任务 ${currentTask}：共 ${rows.length} 个，已完成 ${settled}，已用 ${elapsedText()}`
+      : `完成 ${done} 个 · 失败 ${failed} 个 · 耗时 ${taskElapsed || elapsedText()}`;
     $("#btn-open-out").style.display = done === rows.length && rows.length ? "" : "none";
+    if (cancelBtn) cancelBtn.style.display = taskActive ? "" : "none";
+    if (taskActive && !elapsedTimer) {
+      elapsedTimer = setInterval(renderTaskPanel, 1000);
+    } else if (!taskActive) {
+      stopElapsedTimer();
+    }
   }
 
   function onUpdate(p) {
     if (p.taskId !== currentTask) return;
     const rows = taskRows.get(currentTask);
     if (!rows) return;
-    if (p.status === "finished" || p.status === "cancelled" && p.fileIndex === 0) return;
+    if (p.status === "finished" || p.status === "cancelled" && p.fileIndex === 0) {
+      if (p.status === "finished") {
+        rows.forEach((r) => { if (r.status === "queued") r.status = "cancelled"; });
+      }
+      return taskFinishing();
+    }
     if (typeof p.fileIndex === "number" && rows[p.fileIndex]) {
       rows[p.fileIndex].status = p.status;
       rows[p.fileIndex].message = p.message || "";
       rows[p.fileIndex].out = p.out;
-    }
-    if (p.status === "finished") {
-      rows.forEach((r) => { if (r.status === "queued") r.status = "cancelled"; });
+      rows[p.fileIndex].lastFile = p.lastFile;
     }
     renderTaskPanel();
   }
 
   /* ---------- 各页构建 ---------- */
-  function fileCard(multi) {
+  function fileCard() {
     return `<div class="card">
-      <div class="drop" id="drop">点击选择文件，或把文件拖到这里</div>
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <label id="file-count" style="font-weight:600;color:#334155"></label>
+      </div>
+      <div class="drop" id="drop">
+        ${svg("pdf2img", "drop-ico")}
+        <div class="t1">点击选择文件</div>
+        <div class="t2">或拖拽到此处</div>
+      </div>
       <div class="file-list" id="file-list" style="margin-top:8px"></div>
       <div class="pager" id="pager"></div>
     </div>`;
@@ -155,13 +289,13 @@
         <span data-sub="s-p2w">PDF → Word</span>
       </div>
       <div class="subpage active" id="s-office">
-        ${fileCard(true)}
+        ${fileCard()}
         <button class="primary" id="go-office">开始转换为 PDF</button>
         <div class="hint">支持 doc / docx / xls / xlsx / ppt / pptx / rtf / odt / txt / ods / odp，
           输出与源文件同目录。复杂排版的 Word 与 Office 真实效果可能略有差异。</div>
       </div>
       <div class="subpage" id="s-p2w">
-        ${fileCard(true)}
+        ${fileCard()}
         <button class="primary" id="go-p2w">开始转换为 Word</button>
         <div class="hint">仅支持文字版 PDF（扫描件请先用 OCR 识别）。输出名固定为 原名.docx。</div>
       </div>
@@ -232,10 +366,12 @@
       <h2>OCR 文字识别</h2>
       <div class="card"><h3>输出</h3>
         <div class="row"><label>输出类型</label><select id="ocr-mode">
-          <option value="txt">TXT 文本</option><option value="searchable">可搜索 PDF</option></select></div>
+          <option value="txt">TXT 文本</option><option value="searchable">可搜索 PDF</option></select>
+        <label>识别精度 DPI</label><select id="ocr-dpi">
+          <option value="150">150（快）</option><option value="300">300（准，较慢）</option></select></div>
         <div class="hint">支持中文简体+英文。扫描件识别效果取决于原件清晰度。</div>
       </div>
-      ${fileCard(true)}
+      ${fileCard()}
       <button class="primary" id="go-ocr">开始识别</button>
     </div>`;
   }
@@ -253,24 +389,30 @@
           <div class="row"><label>打开密码</label><input type="password" id="enc-pw" placeholder="至少 4 位"></div>
           <div class="row"><label>权限密码（可选）</label><input type="password" id="enc-opw" placeholder="默认同打开密码"></div>
         </div>
-        ${fileCard(true)}
+        ${fileCard()}
         <button class="primary" id="go-enc">开始加密（AES-256）</button>
       </div>
       <div class="subpage" id="u-dec">
         <div class="card"><h3>输入密码</h3>
           <div class="row"><label>文件密码</label><input type="password" id="dec-pw"></div>
         </div>
-        ${fileCard(true)}
+        ${fileCard()}
         <button class="primary" id="go-dec">开始解密</button>
       </div>
       <div class="subpage" id="u-wm">
         <div class="card"><h3>水印</h3>
-          <div class="row"><label>文字</label><input type="text" id="wm-text" value="内部资料" style="min-width:260px">
+          <div class="row"><label>文字</label><input type="text" id="wm-text" value="内部资料" style="min-width:200px">
           <label>透明度</label><input type="range" id="wm-opacity" min="0.05" max="0.5" step="0.05" value="0.15">
-          <span id="wm-opv">15%</span>
+          <span id="wm-opv">15%</span></div>
+          <div class="row"><label>倾斜角度</label><select id="wm-angle">
+            <option value="0">0°（水平）</option><option value="30">30°</option>
+            <option value="45" selected>45°（默认）</option><option value="60">60°</option></select>
+          <label>颜色</label><select id="wm-color">
+            <option value="gray" selected>灰色</option><option value="red">红色</option>
+            <option value="blue">蓝色</option></select>
           <label><input type="checkbox" id="wm-tile" checked> 整页平铺</label></div>
         </div>
-        ${fileCard(true)}
+        ${fileCard()}
         <button class="primary" id="go-wm">开始加水印</button>
       </div>
     </div>`;
@@ -299,8 +441,9 @@
       </div>
       <div class="card"><h3>维护</h3>
         <div class="row"><button id="set-openlog">打开日志目录</button>
+        <button id="set-reset" class="danger">恢复默认设置</button>
         <span class="hint">排障时请把最新日志发给维护人员</span></div>
-      <div class="hint">版本 1.0.0 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
+      <div class="hint">版本 1.0.2 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
     </div>`;
   }
 
@@ -311,10 +454,16 @@
       pageImg2Pdf() + pageOcr() + pageSecurity() + pageSettings() + `
       <div class="card" id="task-card">
         <h3>任务 <span id="task-summary"></span>
+        <button class="primary" id="btn-cancel" style="display:none;margin-left:auto;padding:4px 14px;font-size:13px">取消任务</button>
         <button class="link" id="btn-open-out" style="display:none">打开输出目录</button></h3>
+        <div class="progress"><div class="progress-bar" id="task-progress"></div></div>
+        <div class="tip" id="tip-first" style="display:none">
+          ${svg("convert")}<div>支持拖拽多个文件批量处理，任务进行中可随时取消。</div>
+          <span class="tip-x" id="tip-x">×</span>
+        </div>
         <table id="task-table"><thead><tr>
-        <th>#</th><th>文件</th><th>状态</th><th>信息</th></tr></thead><tbody id="task-body">
-        <tr><td colspan="4">暂无任务</td></tr></tbody></table>
+        <th>#</th><th>文件</th><th>状态</th><th>信息</th><th>操作</th></tr></thead><tbody id="task-body">
+        <tr><td colspan="5">暂无任务</td></tr></tbody></table>
         <div class="pager" id="task-pager"></div>
       </div>`;
 
@@ -344,6 +493,23 @@
     $("#btn-open-out").addEventListener("click", () => {
       const last = (taskRows.get(currentTask) || []).filter((r) => r.out).pop();
       if (last && last.out) window.kit.openOut(last.out);
+    });
+    $("#btn-cancel").addEventListener("click", () => {
+      if (!currentTask) return;
+      window.kit.cancelTask(currentTask);
+      taskActive = false;
+      stopElapsedTimer();
+      const rows = taskRows.get(currentTask) || [];
+      rows.forEach((r) => { if (r.status === "queued" || r.status === "running") r.status = "cancelled"; });
+      taskElapsed = elapsedText();
+      renderTaskPanel();
+    });
+    const tip = $("#tip-first");
+    if (tip && !settings.seen) tip.style.display = "";
+    $("#tip-x").addEventListener("click", () => {
+      tip.style.display = "none";
+      settings.seen = 1;
+      window.kit.setSettings({ ...settings });
     });
   }
 
@@ -403,7 +569,9 @@
   }
 
   function bindOcr() {
-    $("#go-ocr").addEventListener("click", () => submit("ocr", { mode: $("#ocr-mode").value }));
+    $("#go-ocr").addEventListener("click", () => submit("ocr", {
+      mode: $("#ocr-mode").value, dpi: Number($("#ocr-dpi").value) || 150,
+    }));
   }
 
   function bindSecurity() {
@@ -412,7 +580,13 @@
       user_pw: $("#enc-pw").value, owner_pw: $("#enc-opw").value,
     }));
     $("#go-dec").addEventListener("click", () => submit("decrypt", { password: $("#dec-pw").value }));
-    $("#go-wm").addEventListener("click", () => submit("watermark", {}));
+    $("#go-wm").addEventListener("click", () => submit("watermark", {
+      text: $("#wm-text").value.trim() || "内部资料",
+      opacity: Number($("#wm-opacity").value),
+      rotate: Number($("#wm-angle").value),
+      color: $("#wm-color").value,
+      tile: $("#wm-tile").checked,
+    }));
     const sync = () => { $("#wm-opv").textContent = Math.round($("#wm-opacity").value * 100) + "%"; };
     $("#wm-opacity").addEventListener("input", sync); sync();
   }
@@ -451,6 +625,10 @@
       if (dir) { $("#set-fixed").value = dir; save(); }
     });
     $("#set-openlog").addEventListener("click", () => window.kit.openLogDir());
+    $("#set-reset").addEventListener("click", async () => {
+      await window.kit.setSettings({});
+      await refreshSettingsForm();
+    });
   }
 
   /* ---------- 启动 ---------- */
