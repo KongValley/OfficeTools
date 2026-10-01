@@ -282,14 +282,25 @@ ipcMain.handle("open-log-dir", () => shell.openPath(LOG_DIR));
 //（后者对中文/混合路径会弹"找不到文件"）。
 ipcMain.handle("open-out", (e, p) => (
   p ? shell.openPath(path.dirname(String(p).replace(/\//g, "\\"))) : undefined));
-ipcMain.handle("select-files", async () => {
+/* 按页传入文件类型，让对话框默认选中匹配的格式（否则永远默认第一项=办公文档）。
+   扩展名从上面的 OFFICE_EXT/IMG_EXT 派生（去掉点），单一数据源不漂移。 */
+const stripDot = (a) => a.map((e) => e.slice(1));
+const EXT_KINDS = {
+  office: stripDot(OFFICE_EXT),
+  pdf: stripDot(PDF_EXT),
+  image: stripDot(IMG_EXT),
+};
+const ALL_FILTERS = [
+  { name: "办公文档", extensions: EXT_KINDS.office },
+  { name: "PDF", extensions: EXT_KINDS.pdf },
+  { name: "图片", extensions: EXT_KINDS.image },
+];
+ipcMain.handle("select-files", async (e, kind) => {
+  const exts = EXT_KINDS[kind];
+  const filters = exts ? [{ name: "所选类型", extensions: exts }] : ALL_FILTERS;
   const r = await dialog.showOpenDialog({
     properties: ["openFile", "multiSelections"],
-    filters: [
-      { name: "办公文档", extensions: ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf", "odt", "txt"] },
-      { name: "PDF", extensions: ["pdf"] },
-      { name: "图片", extensions: ["png", "jpg", "jpeg", "bmp", "gif", "tif", "webp"] },
-    ],
+    filters,
   });
   return r.canceled ? [] : r.filePaths;
 });

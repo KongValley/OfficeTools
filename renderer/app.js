@@ -65,24 +65,43 @@
   function showPage(id) {
     $$("#nav-list li").forEach((li) => li.classList.toggle("active", li.dataset.page === id));
     $$(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + id));
+    if (id === "settings") { activeList = ""; refreshSettingsForm(); renderFileList(); return; }
     emptyHint = EMPTY_HINTS[id] || emptyHint;
-    if (id === "settings") refreshSettingsForm();
+    // 有子页的页：保持该页当前活动子页为列表宿主；无子页：页 id 即后缀
+    const activeSub = $(`.page#page-${id} .subpage.active`);
+    activeList = activeSub ? activeSub.id : id;
     renderFileList();
   }
 
   /* ---------- 通用文件选择 ---------- */
-  /* 按页传入引导文案：空状态除提示外，说明该页接受哪些文件 */
+  /* 按页/子页的引导文案与文件类型；kind 决定选择框默认 filter：
+     office/pdf/image，null = 三类全列（不预设） */
   const EMPTY_HINTS = {
-    convert: { title: "把 Office 文档拖进来", sub: "支持 doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt 等" },
-    pages: { title: "把 PDF 拖进来", sub: "合并/拆分/提取/删除/旋转页面" },
-    compress: { title: "把 PDF 拖进来", sub: "压缩图片精度以减小体积" },
-    pdf2img: { title: "把 PDF 拖进来", sub: "按 DPI 渲染成 PNG/JPG" },
-    img2pdf: { title: "把图片拖进来", sub: "按当前文件顺序合成 PDF", sortable: true },
-    imgcompress: { title: "把图片拖进来", sub: "JPG/PNG 批量压缩，可调质量与缩放" },
-    ocr: { title: "把扫描件拖进来", sub: "支持 PDF 与图片，识别为文本或可搜索 PDF" },
-    security: { title: "把 PDF 拖进来", sub: "AES-256 加密/解密，或添加文字水印" },
+    convert: { title: "把 Office 文档拖进来", sub: "支持 doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt 等", kind: "office" },
+    "s-office": { title: "把 Office 文档拖进来", sub: "支持 doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt 等", kind: "office" },
+    "s-p2w": { title: "把 PDF 拖进来", sub: "仅支持文字版 PDF（扫描件请先用 OCR 识别）", kind: "pdf" },
+    pages: { title: "把 PDF 拖进来", sub: "合并/拆分/提取/删除/旋转页面", kind: "pdf" },
+    compress: { title: "把 PDF 拖进来", sub: "压缩图片精度以减小体积", kind: "pdf" },
+    pdf2img: { title: "把 PDF 拖进来", sub: "按 DPI 渲染成 PNG/JPG", kind: "pdf" },
+    img2pdf: { title: "把图片拖进来", sub: "按当前文件顺序合成 PDF", sortable: true, kind: "image" },
+    imgcompress: { title: "把图片拖进来", sub: "JPG/PNG 批量压缩，可调质量与缩放", kind: "image" },
+    ocr: { title: "把扫描件拖进来", sub: "支持 PDF 与图片，识别为文本或可搜索 PDF", kind: null },
+    security: { title: "把 PDF 拖进来", sub: "AES-256 加密/解密，或添加文字水印", kind: "pdf" },
+    "u-enc": { title: "把 PDF 拖进来", sub: "AES-256 加密", kind: "pdf" },
+    "u-dec": { title: "把 PDF 拖进来", sub: "输入原密码解除加密", kind: "pdf" },
+    "u-wm": { title: "把 PDF 拖进来", sub: "添加可调角度/颜色的文字水印", kind: "pdf" },
   };
-  let emptyHint = { title: "把文件拖进来，或点击选择" };
+  let emptyHint = EMPTY_HINTS["s-office"];
+  /* 当前活动文件列表的后缀（每页一份列表，id 必须唯一） */
+  let activeList = "s-office";
+  /* 从拖拽区向上找所属子页/页 id，得到该页列表后缀 */
+  function suffixOf(el) {
+    const sub = el.closest(".subpage");
+    if (sub && sub.id) return sub.id;
+    const pg = el.closest(".page");
+    if (pg && pg.id) return pg.id.replace(/^page-/, "");
+    return activeList;
+  }
 
   function setFiles(files) {
     state.files = files;
@@ -120,15 +139,16 @@
   }
 
   function renderFileList() {
-    const el = $("#file-list");
+    const el = $("#file-list-" + activeList);
     if (!el) return;
-    const countEl = $("#file-count");
-    if (countEl) countEl.textContent = state.files.length ? `已选 ${state.files.length} 个文件` : "";
+    const countEl = $("#file-count-" + activeList);
+    if (countEl) countEl.textContent = state.files.length ? `待处理 ${state.files.length} 个文件` : "";
     if (!state.files.length) {
       el.innerHTML = `<div class="empty empty-lg">
         ${svg("pages")}<div class="em">${emptyHint.title}</div>
         <div class="es">${emptyHint.sub || ""}</div></div>`;
-      $("#pager").innerHTML = "";
+      const pg0 = $("#pager-" + activeList);
+      if (pg0) pg0.innerHTML = "";
       return;
     }
     const start = filePage * PAGE_SIZE;
@@ -161,7 +181,8 @@
       e.stopPropagation(); move(Number(b.dataset.down), 1);
     }));
     const pages = Math.max(1, Math.ceil(state.files.length / PAGE_SIZE));
-    $("#pager").innerHTML = `${state.files.length > PAGE_SIZE ? `
+    const pager = $("#pager-" + activeList);
+    pager.innerHTML = `${state.files.length > PAGE_SIZE ? `
       <span>共 ${state.files.length} 个</span>
       <button class="small" id="pg-prev" ${filePage === 0 ? "disabled" : ""}>上一页</button>
       <span>${filePage + 1}/${pages}</span>
@@ -184,7 +205,13 @@
     taskElapsed = "";
     renderTaskPanel();
     window.kit.submitTask(tool, state.files.slice(), { taskId: currentTask, ...options })
-      .then((r) => { if (r && !r.ok) showSubmitError(r.error || "提交失败"); })
+      .then((r) => {
+        if (r && !r.ok) { showSubmitError(r.error || "提交失败"); return; }
+        // 提交成功：选中列表即任务队列，清空待处理（失败时保留供重试）
+        state.files = [];
+        filePage = 0;
+        renderFileList();
+      })
       .catch((e) => showSubmitError(String(e && e.message || e)));
   }
 
@@ -272,18 +299,19 @@
   }
 
   /* ---------- 各页构建 ---------- */
-  function fileCard() {
+  /* 文件卡片：id 带后缀（每页一份，HTML id 必须唯一，否则 $("#file-list") 只命中第一个） */
+  function fileCard(suffix) {
     return `<div class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:8px">
-        <label id="file-count" style="font-weight:600;color:#334155"></label>
+        <label id="file-count-${suffix}" style="font-weight:600;color:#334155"></label>
       </div>
-      <div class="drop" id="drop">
+      <div class="drop" id="drop-${suffix}">
         ${svg("pdf2img", "drop-ico")}
         <div class="t1">点击选择文件</div>
         <div class="t2">或拖拽到此处</div>
       </div>
-      <div class="file-list" id="file-list" style="margin-top:8px"></div>
-      <div class="pager" id="pager"></div>
+      <div class="file-list" id="file-list-${suffix}" style="margin-top:8px"></div>
+      <div class="pager" id="pager-${suffix}"></div>
     </div>`;
   }
 
@@ -295,13 +323,13 @@
         <span data-sub="s-p2w">PDF → Word</span>
       </div>
       <div class="subpage active" id="s-office">
-        ${fileCard()}
+        ${fileCard("s-office")}
         <button class="primary" id="go-office">开始转换为 PDF</button>
         <div class="hint">支持 doc / docx / xls / xlsx / ppt / pptx / rtf / odt / txt / ods / odp，
           输出与源文件同目录。复杂排版的 Word 与 Office 真实效果可能略有差异。</div>
       </div>
       <div class="subpage" id="s-p2w">
-        ${fileCard()}
+        ${fileCard("s-p2w")}
         <button class="primary" id="go-p2w">开始转换为 Word</button>
         <div class="hint">仅支持文字版 PDF（扫描件请先用 OCR 识别）。输出名固定为 原名.docx。</div>
       </div>
@@ -321,7 +349,7 @@
         </select></div>
         <div class="hint" id="op-hint"></div>
       </div>
-      ${fileCard(true)}
+      ${fileCard("pages")}
       <button class="primary" id="go-pages">开始处理</button>
     </div>`;
   }
@@ -337,7 +365,7 @@
         </select></div>
         <div class="hint">压缩会降低图片精度以减小体积，文字清晰度不受影响。</div>
       </div>
-      ${fileCard(true)}
+      ${fileCard("compress")}
       <button class="primary" id="go-compress">开始压缩</button>
     </div>`;
   }
@@ -351,7 +379,7 @@
         <select id="fmt-sel"><option value="png">PNG（无损）</option><option value="jpg">JPG（体积小）</option></select></div>
         <div class="hint">150dpi 足够屏幕查看；300dpi 适合打印。页数多时输出文件也较多。</div>
       </div>
-      ${fileCard(true)}
+      ${fileCard("pdf2img")}
       <button class="primary" id="go-pdf2img">开始转换</button>
     </div>`;
   }
@@ -362,7 +390,7 @@
       <div class="card"><h3>图片</h3>
         <div class="hint">可一张图一页合成一个 PDF。当前按所选文件顺序合并，如需排序请逐张生成后使用 PDF 合并。</div>
       </div>
-      ${fileCard(true)}
+      ${fileCard("img2pdf")}
       <button class="primary" id="go-img2pdf">开始合成</button>
     </div>`;
   }
@@ -382,7 +410,7 @@
         <div class="hint">JPG 按质量重编码；PNG 无损格式仅在缩放时重编码（不缩放时直接输出）。
           处理后输出「原名-压缩.jpg/png」到源文件同目录。</div>
       </div>
-      ${fileCard()}
+      ${fileCard("imgcompress")}
       <button class="primary" id="go-imgcompress">开始压缩</button>
     </div>`;
   }
@@ -397,7 +425,7 @@
           <option value="150">150（快）</option><option value="300">300（准，较慢）</option></select></div>
         <div class="hint">支持中文简体+英文。扫描件识别效果取决于原件清晰度。</div>
       </div>
-      ${fileCard()}
+      ${fileCard("ocr")}
       <button class="primary" id="go-ocr">开始识别</button>
     </div>`;
   }
@@ -415,14 +443,14 @@
           <div class="row"><label>打开密码</label><input type="password" id="enc-pw" placeholder="至少 4 位"></div>
           <div class="row"><label>权限密码（可选）</label><input type="password" id="enc-opw" placeholder="默认同打开密码"></div>
         </div>
-        ${fileCard()}
+        ${fileCard("u-enc")}
         <button class="primary" id="go-enc">开始加密（AES-256）</button>
       </div>
       <div class="subpage" id="u-dec">
         <div class="card"><h3>输入密码</h3>
           <div class="row"><label>文件密码</label><input type="password" id="dec-pw"></div>
         </div>
-        ${fileCard()}
+        ${fileCard("u-dec")}
         <button class="primary" id="go-dec">开始解密</button>
       </div>
       <div class="subpage" id="u-wm">
@@ -438,7 +466,7 @@
             <option value="blue">蓝色</option></select>
           <label><input type="checkbox" id="wm-tile" checked> 整页平铺</label></div>
         </div>
-        ${fileCard()}
+        ${fileCard("u-wm")}
         <button class="primary" id="go-wm">开始加水印</button>
       </div>
     </div>`;
@@ -479,7 +507,7 @@
       pageConvert() + pagePages() + pageCompress() + pagePdf2Img() +
       pageImg2Pdf() + pageImgCompress() + pageOcr() + pageSecurity() + pageSettings() + `
       <div class="card" id="task-card">
-        <h3>任务 <span id="task-summary"></span>
+        <h3>任务记录 <span id="task-summary"></span>
         <button class="primary" id="btn-cancel" style="display:none;margin-left:auto;padding:4px 14px;font-size:13px">取消任务</button>
         <button class="link" id="btn-open-out" style="display:none">打开输出目录</button></h3>
         <div class="progress"><div class="progress-bar" id="task-progress"></div></div>
@@ -502,13 +530,18 @@
     // 拖拽区：当前页 drop 绑到 state（文件选择对该页生效）
     $$(".drop").forEach((d) => {
       d.addEventListener("click", async () => {
-        const files = await window.kit.selectFiles();
+        // 点击/选择前先锁定当前列表宿主与文件类型（每页一份列表，id 唯一）
+        activeList = suffixOf(d);
+        emptyHint = EMPTY_HINTS[activeList] || emptyHint;
+        const files = await window.kit.selectFiles(emptyHint.kind || null);
         if (files && files.length) setFiles(state.files.concat(files));
       });
       d.addEventListener("dragover", (e) => { e.preventDefault(); d.classList.add("over"); });
       d.addEventListener("dragleave", () => d.classList.remove("over"));
       d.addEventListener("drop", (e) => {
         e.preventDefault(); d.classList.remove("over");
+        activeList = suffixOf(d);
+        emptyHint = EMPTY_HINTS[activeList] || emptyHint;
         // File.path 是正斜杠混合路径，norm 成反斜杠（否则 sidecar/stat/open 全出错）
         const files = Array.from(e.dataTransfer.files).map((f) => norm(f.path));
         if (files.length) setFiles(state.files.concat(files));
@@ -547,6 +580,10 @@
         sp.classList.add("active");
         $$(".subpage").forEach((p) => p.classList.remove("active"));
         $("#" + sp.dataset.sub).classList.add("active");
+        // 子页切换后文件列表宿主跟着切（每子页一份列表）
+        activeList = sp.dataset.sub;
+        emptyHint = EMPTY_HINTS[sp.dataset.sub] || emptyHint;
+        renderFileList();
       }));
     });
   }
