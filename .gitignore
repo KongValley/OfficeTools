@@ -5,3 +5,4 @@ staging/
 samples-out/
 .build-cache/
 *.log
+.electron-builder.dist.json
