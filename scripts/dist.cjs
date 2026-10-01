@@ -93,12 +93,16 @@ fs.writeFileSync(cfgPath, JSON.stringify(base, null, 2));
 /* 启动 electron-builder：-c 指向刚生成的 JSON。直接调 node 执行 bin，避开 npx 在 MSYS 下的退出码丢失 */
 const flag = ARCH === "ia32" ? "--ia32" : "--x64";
 const builderBin = path.join(ROOT, "node_modules", "electron-builder", "out", "cli", "cli.js");
-const r = spawnSync(process.execPath, [builderBin, "--win", "nsis", flag, "--config", cfgPath], {
+const r = spawnSync(process.execPath, [builderBin, "--win", "nsis", flag, "--config", cfgPath,
+  "--publish", "never"], {
   cwd: ROOT, stdio: "inherit",
   env: {
     ...process.env,
     CSC_IDENTITY_AUTO_DISCOVERY: "false",   // 跳过代码签名（内网产物不需要签名）
     ELECTRON_BUILDER_CACHE: path.join(os.tmpdir(), "kit-ebcache"),
+    // 双重保险：防止 CI 环境下 electron-builder 自动推断发布目标而去找 GH_TOKEN
+    GH_TOKEN: "",
+    GITHUB_TOKEN: "",
   },
 });
 fs.rmSync(cfgPath, { force: true });
