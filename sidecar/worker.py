@@ -107,8 +107,14 @@ def cmd_pdf_pages(args):
         base = os.path.splitext(os.path.basename(src))[0]
         outdir = args.get("out_dir") or os.path.dirname(src)
         os.makedirs(outdir, exist_ok=True)  # 输出目录可能不存在（UI 允许自定义）
+        # pages 缺省/空串 = 全拆；给了页码串则只拆指定页（如 2,5 只出 _p2/_p5）
+        try:
+            idx = parse_pages(args.get("pages"), n) if (args.get("pages") or "").strip() \
+                else list(range(n))
+        except ValueError as e:
+            return _err(str(e))
         outs = []
-        for i in range(n):
+        for i in idx:
             part = fitz.open()
             part.insert_pdf(doc, from_page=i, to_page=i)
             p = os.path.join(outdir, "%s_p%d.pdf" % (base, i + 1))
@@ -894,6 +900,26 @@ def selftest():
                      {"in": merged, "op": "split", "out_dir": splitdir},
                      verify=lambda d: None if d.get("total_pages") == 10 else "split 页数异常",
                      mem_assert_peak=300)
+
+        # ===== 用例 4c：split 指定页 + delete 越界中文错 =====
+        splitdir2 = os.path.join(outdir, "拆分指定页")
+        r = runner.check("pdf_split(pages)", "pdf_pages",
+                         {"in": merged, "op": "split", "out_dir": splitdir2, "pages": "1,3-5"},
+                         verify=lambda d: None if d.get("total_pages") == 10 else "split 页数异常")
+        if r and r.get("ok") and not runner.fail:
+            files_out = sorted(os.listdir(splitdir2))
+            want = ["%s_p%d.pdf" % ("合并", i) for i in (1, 3, 4, 5)]
+            if files_out != want:
+                runner.fail.append(f"split 指定页文件名不符: {files_out}")
+                print("        [FAIL] split 指定页 %s" % files_out)
+            else:
+                print("        [CHECK] split 指定页输出 _p1/_p3/_p4/_p5")
+        r = runner.call("pdf_pages", {"in": merged, "out": merged_p, "op": "delete",
+                                      "pages": "0"})
+        if r.get("ok") or "页码超出范围" not in str(r.get("error", "")):
+            runner.fail.append(f"delete 越界页码未报中文错: {r}")
+        else:
+            print("  [OK] delete越界页码中文提示")
 
         # ===== 用例 5：extract / delete / rotate =====
         ext = os.path.join(outdir, "提取.pdf")

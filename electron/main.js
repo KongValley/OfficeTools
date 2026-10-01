@@ -116,7 +116,9 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
     }
     case "pdf_split": {
       out = path.join(tmpDir, path.basename(file));
-      await Engines.runSidecar("pdf_pages", { in: file, op: "split", out_dir: outDir });
+      // 每文件页码串（未填=全拆）；split 也走同一通道，行内空框即旧行为
+      await Engines.runSidecar("pdf_pages", { in: file, op: "split", out_dir: outDir,
+        pages: Array.isArray(opts.pageSpecs) ? (opts.pageSpecs[fileIndex] || "") : opts.pages });
       message = "拆分完成";
       break;
     }
@@ -127,7 +129,9 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
     }
     case "pdf_delete": {
       out = path.join(outDir, `${stem}-删页后.pdf`);
-      await Engines.runSidecar("pdf_pages", { in: file, out, op: "delete", pages: opts.pages });
+      // 每文件页码串（未填=不删，输出与原页数一致）
+      await Engines.runSidecar("pdf_pages", { in: file, out, op: "delete",
+        pages: Array.isArray(opts.pageSpecs) ? (opts.pageSpecs[fileIndex] || "") : opts.pages });
       break;
     }
     case "pdf_rotate": {
