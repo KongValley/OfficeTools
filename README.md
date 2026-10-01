@@ -23,7 +23,10 @@
 |---|---|---|
 | Office → PDF | doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt/ods/odp | PDF |
 | PDF → Word | 文字版 PDF | docx（原名.docx） |
+| Office 互转 | doc/docx/xls/xlsx/ppt/pptx/rtf/odt/ods/odp | HTML/Word/Excel/PowerPoint/ODF/RTF（LibreOffice 引擎） |
 | PDF 页面工具 | 多 PDF | 合并/拆分/提取/删除页码（均可每文件独立填页码，如 1,3-5）/ 旋转 |
+| 目录书签 | PDF | 按字号自动生成书签 / 读取当前书签 / 手动编辑（层级\|标题\|页码） |
+| PDF 整理 | PDF | 加页码（四种格式）/ 清除元数据 / 页面重排 / 裁剪边距 |
 | PDF 压缩 | PDF | 三档质量：普通(72dpi)/均衡(150dpi)/高质量(300dpi) |
 | PDF 转图片 | PDF | PNG 或 JPG（默认 150dpi，每页一张） |
 | 图片转 PDF | 多张图片 | 一个 PDF（列表可上移/下移调序） |

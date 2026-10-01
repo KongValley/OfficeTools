@@ -189,18 +189,26 @@ const Engines = {
 
   /** Office → PDF。逐文件；每文件独立 LO profile。 */
   async officeToPdf(file, outDir, log) {
+    return this.officeConvert(file, outDir, "pdf", log);
+  },
+
+  /** Office → 任意 LibreOffice 目标格式（html/docx/xlsx/pptx/odt/ods/odp/rtf...）。
+      target 传 LibreOffice 扩展名；输出名 = 源名换扩展名。 */
+  async officeConvert(file, outDir, target, log) {
     const soffice = this.soffice();
+    const ext_ = String(target || "").toLowerCase().replace(/^\./, "");
+    if (!ext_) throw new Error("未指定目标格式");
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), "lokit-"));
     try {
       await this._runOnce(soffice, [
         "--headless", "--norestore", "--invisible", "--nodefault", "--nolockcheck",
         `-env:UserInstallation=file:///${profile.replace(/\\/g, "/")}`,
-        "--convert-to", "pdf", "--outdir", outDir, file,
+        "--convert-to", ext_, "--outdir", outDir, file,
       ], 120000, (r) => log && log(file, "office", r));
-      // soffice 输出名 = 源文件名换 .pdf
+      // soffice 输出名 = 源文件名换目标扩展名
       const out = path.join(outDir,
-        path.basename(file).replace(/\.[^.]+$/, "") + ".pdf");
-      if (!fs.existsSync(out)) throw new Error("未生成 PDF（文件可能损坏或含不支持的宏）");
+        path.basename(file).replace(/\.[^.]+$/, "") + "." + ext_);
+      if (!fs.existsSync(out)) throw new Error(`未生成 ${ext_} 文件（格式组合可能不支持）`);
       return out;
     } finally {
       fs.rmSync(profile, { recursive: true, force: true });

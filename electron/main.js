@@ -52,6 +52,7 @@ let running = false;
 const TOOLS = new Set([
   "office2pdf", "pdf2word", "pdf_merge", "pdf_split", "pdf_extract", "pdf_delete",
   "pdf_rotate", "pdf_compress", "pdf2img", "img2pdf", "imgcompress", "ocr", "encrypt", "decrypt", "watermark",
+  "toc", "metadata", "number", "reorder", "crop", "office_convert",
 ]);
 
 const OFFICE_EXT = [".doc", ".docx", ".rtf", ".odt", ".txt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"];
@@ -204,6 +205,46 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
         rotate: Number(opts.rotate) || 45, color: opts.color || "gray", tile: !!settings.watermarkTile });
       break;
     }
+    case "toc": {
+      out = path.join(outDir, `${stem}-书签.pdf`);
+      const r = await Engines.runSidecar("toc", { in: file, out,
+        mode: opts.mode, items: opts.items, min_size: opts.minSize });
+      message = r.toc !== undefined ? `书签 ${r.toc} 条` : "";
+      break;
+    }
+    case "metadata": {
+      if (opts.mode === "get") throw new Error("元数据查看不走任务队列");
+      out = path.join(outDir, `${stem}-清除元数据.pdf`);
+      await Engines.runSidecar("metadata", { in: file, out,
+        mode: opts.mode, fields: opts.fields });
+      message = "元数据已清除";
+      break;
+    }
+    case "number": {
+      out = path.join(outDir, `${stem}-加页码.pdf`);
+      const r = await Engines.runSidecar("number", { in: file, out,
+        start: Number(opts.start) || 1, pos: opts.pos, size: Number(opts.size) || 9,
+        fmt: opts.fmt, color: opts.color, margin: Number(opts.margin) || 24 });
+      message = `已编 ${r.numbered} 页`;
+      break;
+    }
+    case "reorder": {
+      out = path.join(outDir, `${stem}-重排.pdf`);
+      await Engines.runSidecar("reorder", { in: file, out, order: opts.order });
+      break;
+    }
+    case "crop": {
+      out = path.join(outDir, `${stem}-裁剪.pdf`);
+      await Engines.runSidecar("crop", { in: file, out, margin: Number(opts.margin) || 0 });
+      break;
+    }
+    case "office_convert": {
+      if (!OFFICE_EXT.includes(ext(file))) throw new Error("不支持的文件类型");
+      out = await Engines.officeConvert(file, outDir, opts.target, (f, kind, r) =>
+        log(`office_convert file=${f} target=${opts.target} exit=${r.code}`));
+      message = `已转 ${path.extname(out).slice(1).toUpperCase()}`;
+      break;
+    }
     default:
       throw new Error("未知工具");
   }
@@ -269,6 +310,12 @@ ipcMain.handle("cancel-task", (e, taskId) => {
   const t = queue.find((x) => x.id === taskId);
   if (t) { t.cancelled = true; queue.splice(queue.indexOf(t), 1); }
   return { ok: true };
+});
+
+// 目录书签只读查看（无输出文件，不走任务队列）；错误由 renderer 弹中文提示
+ipcMain.handle("toc-get", async (e, p) => {
+  try { return await Engines.runSidecar("toc", { in: p, mode: "get" }); }
+  catch (e2) { return { error: e2.message }; }
 });
 
 function sizeLabel(bytes) {

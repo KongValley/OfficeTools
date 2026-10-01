@@ -16,6 +16,8 @@
   const PAGES = [
     { id: "convert", name: "格式转换" },
     { id: "pages", name: "PDF 页面工具" },
+    { id: "tocpage", name: "目录书签" },
+    { id: "misc", name: "PDF 整理" },
     { id: "compress", name: "PDF 压缩" },
     { id: "pdf2img", name: "PDF 转图片" },
     { id: "img2pdf", name: "图片转 PDF" },
@@ -29,6 +31,8 @@
   const ICONS = {
     convert: '<path d="M17 3l4 4-4 4"/><path d="M21 7H8a4 4 0 0 0-4 4v1"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h13a4 4 0 0 0 4-4v-1"/>',
     pages: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
+    tocpage: '<path d="M4 6h16M4 6l2-2M4 6l2 2M4 12h10M4 12l2-2M4 12l2 2M4 18h13M4 18l2-2M4 18l2 2"/>',
+    misc: '<path d="M3 5h18v14H3z"/><path d="M7 9l3 3-3 3M13 15h4"/>',
     compress: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/><line x1="8" y1="12" x2="16" y2="12"/>',
     pdf2img: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
     img2pdf: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 12 12 17 22 12"/><polyline points="2 17 12 22 22 17"/>',
@@ -82,6 +86,9 @@
     "s-office": { title: "把 Office 文档拖进来", sub: "支持 doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt 等", kind: "office" },
     "s-p2w": { title: "把 PDF 拖进来", sub: "仅支持文字版 PDF（扫描件请先用 OCR 识别）", kind: "pdf" },
     pages: { title: "把 PDF 拖进来", sub: "合并/拆分/提取/删除/旋转页面", kind: "pdf", pageSpec: true },
+    tocpage: { title: "把 PDF 拖进来", sub: "查看/生成/编辑 PDF 目录书签", kind: "pdf" },
+    misc: { title: "把 PDF 拖进来", sub: "加页码 / 清元数据 / 重排页面 / 裁边距", kind: "pdf" },
+    "s-ofmt": { title: "把 Office 文档拖进来", sub: "doc/docx/xls/xlsx/ppt/pptx/rtf/odt 等，转成所选格式", kind: "office" },
     compress: { title: "把 PDF 拖进来", sub: "压缩图片精度以减小体积", kind: "pdf" },
     pdf2img: { title: "把 PDF 拖进来", sub: "按 DPI 渲染成 PNG/JPG", kind: "pdf" },
     img2pdf: { title: "把图片拖进来", sub: "按当前文件顺序合成 PDF", sortable: true, kind: "image" },
@@ -331,6 +338,7 @@
       <div class="subtabs">
         <span class="active" data-sub="s-office">Office → PDF</span>
         <span data-sub="s-p2w">PDF → Word</span>
+        <span data-sub="s-ofmt">Office 互转</span>
       </div>
       <div class="subpage active" id="s-office">
         ${fileCard("s-office")}
@@ -342,6 +350,23 @@
         ${fileCard("s-p2w")}
         <button class="primary" id="go-p2w">开始转换为 Word</button>
         <div class="hint">仅支持文字版 PDF（扫描件请先用 OCR 识别）。输出名固定为 原名.docx。</div>
+      </div>
+      <div class="subpage" id="s-ofmt">
+        ${fileCard("s-ofmt")}
+        <div class="row"><label>目标格式</label>
+        <select id="ofmt-target">
+          <option value="html">HTML 网页</option>
+          <option value="docx">Word (docx)</option>
+          <option value="xlsx">Excel (xlsx)</option>
+          <option value="pptx">PowerPoint (pptx)</option>
+          <option value="odt">ODF 文字 (odt)</option>
+          <option value="ods">ODF 表格 (ods)</option>
+          <option value="odp">ODF 演示 (odp)</option>
+          <option value="rtf">RTF</option>
+        </select></div>
+        <button class="primary" id="go-ofmt">开始转换</button>
+        <div class="hint">由 LibreOffice 引擎转换，个别格式组合可能不支持（如 ppt→xlsx），失败会在任务列表提示。
+          输出与源文件同目录。</div>
       </div>
     </div>`;
   }
@@ -361,6 +386,64 @@
       </div>
       ${fileCard("pages")}
       <button class="primary" id="go-pages">开始处理</button>
+    </div>`;
+  }
+
+  function pageToc() {
+    return `<div class="page" id="page-tocpage">
+      <h2>目录书签</h2>
+      <div class="card"><h3>自动生成</h3>
+        <div class="row"><label>标题字号阈值</label>
+        <input type="number" id="toc-minsize" value="14" min="6" max="48" step="1" style="min-width:80px">
+        <span class="hint">字号不小于该值的文字行视为标题</span></div>
+        <div class="hint">自动按每页文本字号识别一级标题。识别不准时请在下方手动编辑。</div>
+      </div>
+      <div class="card"><h3>手动编辑 / 读取</h3>
+        <div class="row" style="justify-content:space-between">
+          <span class="hint">每行一条：层级|标题|页码（如 <code>1|第一章 概述|3</code>）。层级 1=一级。</span>
+          <button class="small" id="toc-load">读取当前书签</button>
+        </div>
+        <textarea id="toc-items" placeholder="1|第一章 概述|1&#10;1|第二章 方案|4"></textarea>
+        <div class="hint">有内容 = 按此设置书签；清空 = 按上方阈值自动生成。</div>
+      </div>
+      ${fileCard("tocpage")}
+      <button class="primary" id="go-toc">开始处理</button>
+    </div>`;
+  }
+
+  function pageMisc() {
+    const ops = [["number", "加页码"], ["metadata", "清除元数据"],
+      ["reorder", "页面重排"], ["crop", "裁剪边距"]];
+    return `<div class="page" id="page-misc">
+      <h2>PDF 整理</h2>
+      <div class="card"><h3>操作</h3>
+        <div class="row"><select id="misc-sel">${ops.map(([v, n]) => `<option value="${v}">${n}</option>`).join("")}</select>
+        <span id="misc-num-opts">
+          <select id="num-pos">
+            <option value="bottom-center">页脚居中</option><option value="bottom-right">页脚右侧</option>
+            <option value="bottom-left">页脚左侧</option><option value="top-center">页眉居中</option>
+          </select>
+          <select id="num-fmt">
+            <option value="第{n}页">第N页</option><option value="{n}">N</option>
+            <option value="第{n}页/共{total}页">第N页/共M页</option><option value="-{n}-">-N-</option>
+          </select>
+          <select id="num-color">
+            <option value="gray">灰色</option><option value="black">黑色</option>
+            <option value="red">红色</option><option value="blue">蓝色</option>
+          </select>
+          <label>起始</label><input type="number" id="num-start" value="1" min="1" step="1" style="min-width:64px">
+        </span>
+        <span id="misc-reorder-opts" style="display:none">
+          <input type="text" id="reorder-order" placeholder="如 3,1-2,5（须覆盖全部页）" style="min-width:240px">
+        </span>
+        <span id="misc-crop-opts" style="display:none">
+          <label>裁边距</label><input type="number" id="crop-margin" value="10" min="0" max="200" style="min-width:64px"><span class="hint">pt</span>
+        </span>
+        </div>
+        <div class="hint" id="misc-hint"></div>
+      </div>
+      ${fileCard("misc")}
+      <button class="primary" id="go-misc">开始处理</button>
     </div>`;
   }
 
@@ -507,14 +590,14 @@
         <div class="row"><button id="set-openlog">打开日志目录</button>
         <button id="set-reset" class="danger">恢复默认设置</button>
         <span class="hint">排障时请把最新日志发给维护人员</span></div>
-      <div class="hint">版本 1.1.3 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
+      <div class="hint">版本 1.2.0 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
     </div>`;
   }
 
   /* ---------- 初始化 ---------- */
   function buildPages() {
     $("#pages").innerHTML =
-      pageConvert() + pagePages() + pageCompress() + pagePdf2Img() +
+      pageConvert() + pagePages() + pageToc() + pageMisc() + pageCompress() + pagePdf2Img() +
       pageImg2Pdf() + pageImgCompress() + pageOcr() + pageSecurity() + pageSettings() + `
       <div class="card" id="task-card">
         <h3>任务记录 <span id="task-summary"></span>
@@ -532,7 +615,7 @@
       </div>`;
 
     bindCommon();
-    bindConvert(); bindPages(); bindCompress(); bindPdf2Img();
+    bindConvert(); bindPages(); bindToc(); bindMisc(); bindCompress(); bindPdf2Img();
     bindImg2Pdf(); bindImgCompress(); bindOcr(); bindSecurity(); bindSettings();
   }
 
@@ -619,6 +702,7 @@
     bindSubtabs();
     $("#go-office").addEventListener("click", () => submit("office2pdf", {}));
     $("#go-p2w").addEventListener("click", () => submit("pdf2word", {}));
+    $("#go-ofmt").addEventListener("click", () => submit("office_convert", { target: $("#ofmt-target").value }));
   }
 
   function bindPages() {
@@ -632,6 +716,83 @@
         opts.pageSpecs = state.files.map((f) => fileSpecs.get(f) || "");
       }
       submit("pdf_" + (op === "merge" ? "merge" : op), opts);
+    });
+  }
+
+  /* PDF 整理页：op 切换显隐对应参数行 */
+  function hintMisc() {
+    const v = $("#misc-sel").value;
+    $("#misc-num-opts").style.display = v === "number" ? "" : "none";
+    $("#misc-reorder-opts").style.display = v === "reorder" ? "" : "none";
+    $("#misc-crop-opts").style.display = v === "crop" ? "" : "none";
+    $("#misc-hint").textContent = {
+      number: "在页脚/页眉写入页码，可按下方列表逐个文件处理。",
+      metadata: "清除标题/作者/主题/关键字/制作工具等元数据，防外发泄露。输出 原名-清除元数据.pdf。",
+      reorder: "填写新页序（如 3,1-2,5，须覆盖全部页且不重复），按新顺序重排输出。",
+      crop: "四边同裁指定 pt（20pt≈0.7cm），只改显示边框不影响内容。",
+    }[v] || "";
+  }
+
+  function bindToc() {
+    $("#toc-load").addEventListener("click", async () => {
+      const f = state.files[0];
+      if (!f) { alert("请先选择文件"); return; }
+      const btn = $("#toc-load");
+      btn.disabled = true;
+      try {
+        const r = await window.kit.tocGet(f);
+        if (r && r.error) { alert(r.error); return; }
+        const items = (r && r.toc) || [];
+        $("#toc-items").value = items.map(([l, t, p]) => `${l}|${t}|${p}`).join("\n");
+        if (!items.length) alert("该文件没有书签，可用上方阈值自动生成");
+      } catch (e) {
+        alert(String((e && e.message) || e));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    $("#go-toc").addEventListener("click", () => {
+      const raw = $("#toc-items").value.trim();
+      const opts = { minSize: Number($("#toc-minsize").value) || 14 };
+      if (raw) {
+        const lines = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        const items = [];
+        for (let i = 0; i < lines.length; i++) {
+          const parts = lines[i].split("|").map((s) => s.trim());
+          if (parts.length !== 3 || !Number(parts[0]) || !Number(parts[2])) {
+            alert(`第 ${i + 1} 行格式应为 层级|标题|页码`);
+            return;
+          }
+          items.push([Number(parts[0]), parts[1], Number(parts[2])]);
+        }
+        opts.mode = "set";
+        opts.items = items;
+      } else {
+        opts.mode = "auto";
+      }
+      submit("toc", opts);
+    });
+  }
+
+  function bindMisc() {
+    hintMisc();
+    $("#misc-sel").addEventListener("change", hintMisc);
+    $("#go-misc").addEventListener("click", () => {
+      const op = $("#misc-sel").value;
+      if (op === "number") {
+        submit("number", {
+          start: Number($("#num-start").value) || 1,
+          pos: $("#num-pos").value, fmt: $("#num-fmt").value, color: $("#num-color").value,
+        });
+      } else if (op === "metadata") {
+        submit("metadata", { mode: "clear" });
+      } else if (op === "reorder") {
+        const order = $("#reorder-order").value.trim();
+        if (!order) { alert("请填写新页序，如 3,1-2,5"); return; }
+        submit("reorder", { order });
+      } else {
+        submit("crop", { margin: Number($("#crop-margin").value) || 0 });
+      }
     });
   }
 

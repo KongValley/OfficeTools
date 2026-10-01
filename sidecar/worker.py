@@ -591,6 +591,152 @@ def cmd_ocr(args):
         shutil.rmtree(tmpd, ignore_errors=True)
 
 
+def cmd_toc(args):
+    """args: {"in": pdf, "out": pdf, "mode": "get"|"set"|"auto",
+       "items": [[level, title, page], ...]  # set 用
+       "min_size": 14.0                       # auto 用，标题字号阈值，缺省 14
+    }"""
+    try:
+        doc = _open_pdf(args["in"])
+    except ValueError as e:
+        return _err(str(e))
+    mode = args.get("mode", "get")
+    if mode == "get":
+        toc = doc.get_toc()
+        return {"ok": True, "data": {"toc": toc, "pages": doc.page_count}}
+    if mode == "set":
+        items = args.get("items") or []
+        try:
+            doc.set_toc([[int(l), str(t), int(p)] for l, t, p in items])
+        except Exception:
+            return _err("书签格式不合法（层级/标题/页码）")
+        return {"ok": True, "data": _save(doc, args["out"], "toc", len(items))}
+    if mode == "auto":
+        # 标题 = 字号 >= min_size 的行，按页序生成一级书签（不推断层级，一级够用）
+        min_size = float(args.get("min_size") or 14.0)
+        items = []
+        for pi, pg in enumerate(doc):
+            for b in pg.get_text("dict")["blocks"]:
+                for l in b.get("lines", []):
+                    for s in l["spans"]:
+                        if s["size"] >= min_size and s["text"].strip():
+                            items.append([1, s["text"].strip(), pi + 1])
+        if not items:
+            return _err("未检测到标题（可调小字号阈值）")
+        doc.set_toc(items)
+        return {"ok": True, "data": _save(doc, args["out"], "toc", len(items))}
+    return _err("未知模式")
+
+
+def cmd_metadata(args):
+    """args: {"in": pdf, "out": pdf, "mode": "get"|"clear",
+       "fields": {"title": "...", ...}  # clear 时清除后回填
+    }
+    get 只读不写文件。clear 输出到 out。"""
+    try:
+        doc = _open_pdf(args["in"])
+    except ValueError as e:
+        return _err(str(e))
+    mode = args.get("mode", "get")
+    if mode == "get":
+        m = {k: doc.metadata.get(k, "") for k in
+             ("title", "author", "subject", "keywords", "creator", "producer",
+              "creationDate", "modDate")}
+        return {"ok": True, "data": {"metadata": m, "pages": doc.page_count}}
+    if mode == "clear":
+        # 实测 set_metadata({}) 即全清；fields 的非空键在清除后回填（保留用户想署名的字段）
+        blank = {k: "" for k in ("title", "author", "subject", "keywords",
+                                 "creator", "producer")}
+        doc.set_metadata(blank)
+        for k, v in (args.get("fields") or {}).items():
+            if k in blank and v:
+                doc.set_metadata({k: str(v)})
+        return {"ok": True, "data": _save(doc, args["out"], "cleared", 1)}
+    return _err("未知模式")
+
+
+def cmd_number(args):
+    """args: {"in": pdf, "out": pdf, "start": 1, "pos": "bottom-center",
+       "size": 9, "fmt": "第{n}页", "pages": "1-5"（可选）,
+       "color": "gray"|"black"|"red"|"blue", "margin": 24}
+    fmt 占位符 {n}=当前编号、{total}=总页数。"""
+    try:
+        doc = _open_pdf(args["in"])
+    except ValueError as e:
+        return _err(str(e))
+    n = doc.page_count
+    spec = (args.get("pages") or "").strip()
+    try:
+        idx = parse_pages(spec, n) if spec else list(range(n))
+    except ValueError as e:
+        return _err(str(e))
+    start = int(args.get("start") or 1)
+    fmt = str(args.get("fmt") or "第{n}页")
+    size = float(args.get("size") or 9)
+    margin = float(args.get("margin") or 24)
+    pos = str(args.get("pos") or "bottom-center")
+    color_map = {"black": (0, 0, 0), "gray": (0.45, 0.45, 0.45),
+                 "red": (0.9, 0.1, 0.1), "blue": (0.1, 0.2, 0.8)}
+    rgb = color_map.get(str(args.get("color") or "gray"), (0.45, 0.45, 0.45))
+    font = fitz.Font("china-s")   # 中英数字全覆盖（实测 has_glyph 均 True）
+    numbered = 0
+    for rank, i in enumerate(idx):
+        pg = doc[i]
+        try:
+            text = fmt.format(n=start + rank, total=n)
+        except (KeyError, IndexError, ValueError):
+            return _err("格式串不合法（仅支持 {n} 与 {total}）")
+        w = font.text_length(text, size)   # Font 对象测量与写入字形一致
+        r = pg.rect
+        y = margin + size if pos.startswith("top") else r.height - margin
+        if pos.endswith("left"):
+            x = margin
+        elif pos.endswith("right"):
+            x = r.width - margin - w
+        else:
+            x = (r.width - w) / 2
+        tw = fitz.TextWriter(r)
+        tw.append(fitz.Point(x, y), text, font=font, fontsize=size)
+        tw.write_text(pg, color=rgb)
+        numbered += 1
+    return {"ok": True, "data": _save(doc, args["out"], "numbered", numbered)}
+
+
+def cmd_reorder(args):
+    """args: {"in": pdf, "out": pdf, "order": "3,1-2,5"}  # 新顺序的 1 基页码串"""
+    try:
+        doc = _open_pdf(args["in"])
+    except ValueError as e:
+        return _err(str(e))
+    try:
+        idx = parse_pages(str(args.get("order") or ""), doc.page_count)
+    except ValueError as e:
+        return _err(str(e))
+    # 重排语义 = 全部页面的新顺序；子集选择是 extract 的职责
+    if sorted(idx) != list(range(doc.page_count)):
+        return _err("页码需覆盖全部页且不重复")
+    doc.select(idx)   # 实测 select([2,0,3]) 输出页序 p3,p1,p4
+    return {"ok": True, "data": _save(doc, args["out"], "pages", doc.page_count)}
+
+
+def cmd_crop(args):
+    """args: {"in": pdf, "out": pdf, "margin": 10}  # 四边同裁 pt 数"""
+    try:
+        doc = _open_pdf(args["in"])
+    except ValueError as e:
+        return _err(str(e))
+    try:
+        m = float(args.get("margin") or 0)
+    except ValueError:
+        return _err("边距必须是数字")
+    if m < 0 or m > 200:
+        return _err("边距需在 0-200pt 之间")
+    for pg in doc:
+        r = pg.mediabox
+        pg.set_cropbox(fitz.Rect(r.x0 + m, r.y0 + m, r.x1 - m, r.y1 - m))
+    return {"ok": True, "data": _save(doc, args["out"], "cropped", doc.page_count)}
+
+
 COMMANDS = {
     "pdf2word": cmd_pdf2word,
     "ocr": cmd_ocr,
@@ -601,6 +747,11 @@ COMMANDS = {
     "pdf2img": cmd_pdf2img,
     "img2pdf": cmd_img2pdf,
     "imgcompress": cmd_imgcompress,
+    "toc": cmd_toc,
+    "metadata": cmd_metadata,
+    "number": cmd_number,
+    "reorder": cmd_reorder,
+    "crop": cmd_crop,
 }
 
 
@@ -1114,6 +1265,104 @@ def selftest():
             print(f"  [FAIL] 文件不存在报错: {r}")
         else:
             print("  [OK] 文件不存在中文提示")
+
+        # ===== 用例 13：toc / metadata / number / reorder / crop =====
+        head = os.path.join(tmp, "标题.pdf")
+        dh = fitz.open()
+        hf = fitz.Font("china-s")
+        for i in range(3):
+            pg = dh.new_page(width=595, height=842)
+            tw = fitz.TextWriter(pg.rect)
+            tw.append((72, 100), "Chapter %d heading" % (i + 1), font=hf, fontsize=16)
+            tw.append((72, 200), "body text %d" % (i + 1), font=hf, fontsize=10)
+            tw.write_text(pg)
+        dh.save(head)
+        dh.close()
+
+        toc_out = os.path.join(outdir, "书签.pdf")
+        r = runner.check("toc(auto)", "toc",
+                         {"in": head, "out": toc_out, "mode": "auto", "min_size": 14},
+                         verify=lambda d: None if d.get("toc") == 3 else f"书签数={d.get('toc')} 期望3")
+        if r and r.get("ok") and not runner.fail:
+            chk = fitz.open(toc_out)
+            got = chk.get_toc()
+            chk.close()
+            want_toc = [[1, "Chapter 1 heading", 1], [1, "Chapter 2 heading", 2],
+                        [1, "Chapter 3 heading", 3]]
+            if got != want_toc:
+                runner.fail.append("toc(auto) 书签内容不符: %s" % got)
+                print("        [FAIL] toc 内容 %s" % got)
+            else:
+                print("        [CHECK] toc(auto) 三章标题+页码正确")
+        r = runner.call("toc", {"in": head, "mode": "get"})
+        if not r.get("ok") or r.get("data", {}).get("pages") != 3:
+            runner.fail.append(f"toc(get) 失败: {r}")
+        else:
+            print("  [OK] toc(get) 只读返回页数")
+        toc_set = os.path.join(outdir, "书签手动.pdf")
+        runner.check("toc(set)", "toc",
+                     {"in": five, "out": toc_set, "mode": "set",
+                      "items": [[1, "第一章", 1], [1, "第二章", 3]]},
+                     verify=lambda d: None if d.get("toc") == 2 else f"书签数={d.get('toc')} 期望2")
+
+        meta_out = os.path.join(outdir, "清元数据.pdf")
+        runner.check("metadata(clear)", "metadata",
+                     {"in": merged, "out": meta_out, "mode": "clear"},
+                     verify=lambda d: None if d.get("cleared") == 1 else "clear 未返回成功")
+        chk = fitz.open(meta_out)
+        m = chk.metadata
+        chk.close()
+        # producer 由 PyMuPDF 保存器写入，不可清；断言用户字段
+        if any(m.get(k) for k in ("title", "author", "subject", "keywords", "creator")):
+            runner.fail.append("metadata(clear) 用户字段有残留: %s" % m)
+        r = runner.call("metadata", {"in": merged, "mode": "get"})
+        if not r.get("ok") or "metadata" not in r.get("data", {}):
+            runner.fail.append(f"metadata(get) 失败: {r}")
+        else:
+            print("  [OK] metadata(get) 返回字段表")
+
+        num_out = os.path.join(outdir, "加页码.pdf")
+        runner.check("number", "number",
+                     {"in": five, "out": num_out, "start": 1,
+                      "fmt": "第{n}页/共{total}页", "pos": "bottom-center", "size": 9},
+                     verify=lambda d: None if d.get("numbered") == 5 else f"编号页数={d.get('numbered')} 期望5")
+        chk = fitz.open(num_out)
+        last_text = chk[4].get_text()
+        chk.close()
+        if "第5页/共5页" not in last_text:
+            runner.fail.append("number 末页文本不符: %r" % last_text[:60])
+        r = runner.call("number", {"in": five, "out": num_out, "fmt": "第{x}页"})
+        if r.get("ok") or "格式串不合法" not in str(r.get("error", "")):
+            runner.fail.append(f"number 非法格式串未报中文错: {r}")
+
+        re_out = os.path.join(outdir, "重排.pdf")
+        runner.check("reorder", "reorder",
+                     {"in": five, "out": re_out, "order": "3,1-2,5,4"},
+                     verify=lambda d: None if d.get("pages") == 5 else "reorder 页数异常")
+        chk = fitz.open(re_out)
+        texts = [p.get_text().strip() for p in chk]
+        chk.close()
+        want = ["page 3 merge split test", "page 1 merge split test",
+                "page 2 merge split test", "page 5 merge split test",
+                "page 4 merge split test"]
+        if texts != want:
+            runner.fail.append("reorder 页序不符: %s" % texts)
+        r = runner.call("reorder", {"in": five, "out": re_out, "order": "1,1,2,3,4"})
+        if r.get("ok") or "页码需覆盖全部页且不重复" not in str(r.get("error", "")):
+            runner.fail.append(f"reorder 重复页未报错: {r}")
+
+        crop_out = os.path.join(outdir, "裁剪.pdf")
+        runner.check("crop", "crop",
+                     {"in": five, "out": crop_out, "margin": 20},
+                     verify=lambda d: None if d.get("cropped") == 5 else "crop 页数异常")
+        chk = fitz.open(crop_out)
+        cb = chk[0].cropbox
+        chk.close()
+        if [round(v) for v in (cb.x0, cb.y0, cb.x1, cb.y1)] != [20, 20, 575, 822]:
+            runner.fail.append("crop cropbox 不符: %s" % cb)
+        r = runner.call("crop", {"in": five, "out": crop_out, "margin": 500})
+        if r.get("ok") or "0-200pt" not in str(r.get("error", "")):
+            runner.fail.append(f"crop 超范围未报中文错: {r}")
 
         # ===== 套件整体内存断言 =====
         mem1 = mem_mb()

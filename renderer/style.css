@@ -176,3 +176,7 @@ button.link:hover { background: #eff6ff; text-decoration: underline; }
 .tip .tip-x:hover { color: #1d4ed8; }
 
 input[type=checkbox] { vertical-align: -2px; accent-color: #3b82f6; }
+#toc-items { width: 100%; min-height: 120px; font-family: inherit; font-size: 13px; padding: 6px 8px;
+  border: 1px solid #cbd5e1; border-radius: 5px; resize: vertical; color: #1e293b; }
+#toc-items:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, .15); }
+#toc-items code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
