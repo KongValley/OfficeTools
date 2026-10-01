@@ -23,7 +23,7 @@
 |---|---|---|
 | Office → PDF | doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt/ods/odp | PDF |
 | PDF → Word | 文字版 PDF | docx（原名.docx） |
-| PDF 页面工具 | 多 PDF | 合并（可每文件指定页码，如 1,3-5）/ 每页拆分 / 提取页码 / 删除页码 / 旋转 |
+| PDF 页面工具 | 多 PDF | 合并/拆分/提取/删除页码（均可每文件独立填页码，如 1,3-5）/ 旋转 |
 | PDF 压缩 | PDF | 三档质量：普通(72dpi)/均衡(150dpi)/高质量(300dpi) |
 | PDF 转图片 | PDF | PNG 或 JPG（默认 150dpi，每页一张） |
 | 图片转 PDF | 多张图片 | 一个 PDF（列表可上移/下移调序） |

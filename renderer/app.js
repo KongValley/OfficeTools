@@ -507,7 +507,7 @@
         <div class="row"><button id="set-openlog">打开日志目录</button>
         <button id="set-reset" class="danger">恢复默认设置</button>
         <span class="hint">排障时请把最新日志发给维护人员</span></div>
-      <div class="hint">版本 1.1.2 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
+      <div class="hint">版本 1.1.3 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
     </div>`;
   }
 
