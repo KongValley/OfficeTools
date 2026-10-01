@@ -50,6 +50,7 @@
   let filePage = 0;
   const PAGE_SIZE = 50;
   const sizes = new Map();        // path -> 体积字符串
+  const fileSpecs = new Map();    // path -> 用户填的页码串（merge 每文件）
 
   const state = { files: [] };    // 当前页选择的文件
 
@@ -80,7 +81,7 @@
     convert: { title: "把 Office 文档拖进来", sub: "支持 doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt 等", kind: "office" },
     "s-office": { title: "把 Office 文档拖进来", sub: "支持 doc/docx/xls/xlsx/ppt/pptx/rtf/odt/txt 等", kind: "office" },
     "s-p2w": { title: "把 PDF 拖进来", sub: "仅支持文字版 PDF（扫描件请先用 OCR 识别）", kind: "pdf" },
-    pages: { title: "把 PDF 拖进来", sub: "合并/拆分/提取/删除/旋转页面", kind: "pdf" },
+    pages: { title: "把 PDF 拖进来", sub: "合并/拆分/提取/删除/旋转页面", kind: "pdf", pageSpec: true },
     compress: { title: "把 PDF 拖进来", sub: "压缩图片精度以减小体积", kind: "pdf" },
     pdf2img: { title: "把 PDF 拖进来", sub: "按 DPI 渲染成 PNG/JPG", kind: "pdf" },
     img2pdf: { title: "把图片拖进来", sub: "按当前文件顺序合成 PDF", sortable: true, kind: "image" },
@@ -154,13 +155,21 @@
     const start = filePage * PAGE_SIZE;
     const slice = state.files.slice(start, start + PAGE_SIZE);
     const sortable = !!emptyHint.sortable;
+    const pageSpec = !!emptyHint.pageSpec;
     el.innerHTML = slice.map((f, i) => `
       <div class="fi">${iconFor(f)}<span class="nm">${esc(f)}</span>
       <span class="sz">${esc(sizes.get(f) || "")}</span>
+      ${pageSpec ? `<input class="spec" data-spec="${start + i}" placeholder="全部" title="页码，如 1,3-5；留空=全部页">` : ""}
       <span class="ops">${sortable ? `
         <button class="link" data-up="${start + i}" title="上移">↑</button>
         <button class="link" data-down="${start + i}" title="下移">↓</button>` : ""}
       <button class="small" data-rm="${start + i}">移除</button></span></div>`).join("");
+    // 每文件页码输入：值存 fileSpecs（path -> 串），页大小回填/重渲染不丢
+    $$("[data-spec]", el).forEach((inp) => {
+      const f = state.files[start + Number(inp.dataset.spec)];
+      inp.value = fileSpecs.get(f) || "";
+      inp.addEventListener("input", () => fileSpecs.set(f, inp.value.trim()));
+    });
     $$("[data-rm]", el).forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
       state.files.splice(Number(b.dataset.rm), 1);
@@ -210,6 +219,7 @@
         // 提交成功：选中列表即任务队列，清空待处理（失败时保留供重试）
         state.files = [];
         filePage = 0;
+        fileSpecs.clear();
         renderFileList();
       })
       .catch((e) => showSubmitError(String(e && e.message || e)));
@@ -592,7 +602,7 @@
     const v = $("#op-sel").value;
     const show = (pages, rot) => { $("#op-pages").style.display = pages ? "" : "none"; $("#op-rotate").style.display = rot ? "" : "none"; };
     $("#op-hint").textContent = {
-      merge: "按住 Ctrl 多选（或拖入多个文件），按所选顺序合成一个 PDF。",
+      merge: "按住 Ctrl 多选（或拖入多个文件），按所选顺序合成一个 PDF。每个文件可在下方列表中填页码（如 1,3-5），留空=全部页。",
       split: "单文件 → 每页输出一个 原名_pN.pdf。",
       extract: "提取指定页码为新 PDF，如 1,3-5。",
       delete: "删除指定页码，输出为剩余页。",
@@ -600,6 +610,8 @@
     }[v] || "";
     show(v === "extract" || v === "delete", v === "rotate");
     if (v !== "merge") $("#op-pages").style.display = (v === "rotate" ? "" : "");
+    // 每文件页码输入框仅 merge 时显示
+    $("#file-list-pages").classList.toggle("show-spec", v === "merge");
   }
 
   function bindConvert() {
@@ -614,6 +626,8 @@
     $("#go-pages").addEventListener("click", () => {
       const op = $("#op-sel").value;
       const opts = { pages: $("#op-pages").value.trim(), rotate: $("#op-rotate").value };
+      // merge：每文件页码串按下标对齐（留空=全部页）；其他 op 用全局 pages
+      if (op === "merge") opts.pageSpecs = state.files.map((f) => fileSpecs.get(f) || "");
       submit("pdf_" + (op === "merge" ? "merge" : op), opts);
     });
   }

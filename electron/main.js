@@ -109,7 +109,9 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
     }
     case "pdf_merge": {
       out = path.join(outDir, `${stem}-合并.pdf`);
-      await Engines.runSidecar("pdf_pages", { files: task.files, out, op: "merge" });
+      // undefined 字段 JSON 序列化时省略 → sidecar args.get("pages")=None → 全页合并（兼容旧路径）
+      await Engines.runSidecar("pdf_pages", { files: task.files, out, op: "merge",
+        pages: Array.isArray(opts.pageSpecs) ? opts.pageSpecs : undefined });
       break;
     }
     case "pdf_split": {

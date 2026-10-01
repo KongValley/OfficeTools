@@ -76,14 +76,22 @@ def cmd_pdf_pages(args):
         files = args.get("files") or []
         if len(files) < 2:
             return _err("合并至少需要 2 个文件")
+        # pages：与 files 按下标对齐的页码串；缺省/空串 = 该文件全部页
+        specs = args.get("pages") or []
         out = fitz.open()
-        for f in files:
-            if not os.path.isfile(f):
-                return _err("文件不存在：" + f)
+        for i, f in enumerate(files):
             try:
                 d = _open_pdf(f)
-                out.insert_pdf(d)
+                spec = str(specs[i]).strip() if i < len(specs) else ""
+                if spec:
+                    # parse_pages 抛 ValueError("页码超出范围") → 中文报错
+                    for p in parse_pages(spec, d.page_count):
+                        out.insert_pdf(d, from_page=p, to_page=p)  # 保留用户书写顺序
+                else:
+                    out.insert_pdf(d)
                 d.close()
+            except FileNotFoundError:
+                return _err("文件不存在：" + f)
             except ValueError as e:
                 return _err(str(e))
         return {"ok": True, "data": _save(out, args["out"], "pages", len(out))}
@@ -851,13 +859,36 @@ def selftest():
         d5 = fitz.open()
         for i in range(5):
             d5.new_page(width=595, height=842).insert_text(
-                (50, 60), f"办公助手 第{i + 1}页 合并与拆分测试", fontsize=12)
+                (50, 60), f"page {i + 1} merge split test", fontsize=12)
         d5.save(five)
         d5.close()
         merged = os.path.join(outdir, "合并.pdf")
         runner.check("pdf_merge", "pdf_pages",
                      {"files": [five, five], "out": merged, "op": "merge"},
                      verify=lambda d: None if d.get("pages") == 10 else f"页数={d.get('pages')} 期望10")
+
+        # ===== 用例 4b：merge 带每文件页码（页数 + 页序） =====
+        merged_p = os.path.join(outdir, "合并指定页.pdf")
+        r = runner.check("pdf_merge(pages)", "pdf_pages",
+                         {"files": [five, five], "pages": ["1-2", "4-5"],
+                          "out": merged_p, "op": "merge"},
+                         verify=lambda d: None if d.get("pages") == 4 else f"页数={d.get('pages')} 期望4")
+        if r and r.get("ok") and not runner.fail:
+            md = fitz.open(merged_p)
+            t1, t3 = md[0].get_text(), md[2].get_text()
+            md.close()
+            ok_order = ("page 1 " in t1) and ("page 4 " in t3)
+            if not ok_order:
+                runner.fail.append("merge 指定页页序不符")
+                print("        [FAIL] merge 页序 t1=%r t3=%r" % (t1[:20], t3[:20]))
+            else:
+                print("        [CHECK] merge 指定页页序 1,2 + 4,5")
+        r = runner.call("pdf_pages", {"files": [five, five], "pages": ["99"],
+                                      "out": merged_p, "op": "merge"})
+        if r.get("ok") or "页码超出范围" not in str(r.get("error", "")):
+            runner.fail.append(f"merge 越界页码未报中文错: {r}")
+        else:
+            print("  [OK] merge越界页码中文提示")
         splitdir = os.path.join(outdir, "拆分")
         runner.check("pdf_split", "pdf_pages",
                      {"in": merged, "op": "split", "out_dir": splitdir},

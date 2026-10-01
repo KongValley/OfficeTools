@@ -152,6 +152,10 @@ button.link:hover { background: #eff6ff; text-decoration: underline; }
 .file-list .fi .nm { flex: 1; word-break: break-all; }
 .file-list .fi .sz { color: #94a3b8; font-size: 12px; flex: none; }
 .file-list .fi .ops { display: flex; gap: 2px; flex: none; }
+.file-list .fi .spec { display: none; width: 86px; padding: 2px 6px; font-size: 12px; flex: none; font-family: inherit;
+  border: 1px solid #cbd5e1; border-radius: 4px; }
+.file-list.show-spec .fi .spec { display: inline-block; }
+.file-list .fi .spec:focus { outline: none; border-color: #3b82f6; }
 .file-list .empty { padding: 14px; text-align: center; color: #94a3b8; }
 .file-list .empty-lg { padding: 26px 14px; }
 .file-list .empty-lg svg { width: 34px; height: 34px; color: #cbd5e1; }
