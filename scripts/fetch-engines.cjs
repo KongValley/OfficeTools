@@ -46,18 +46,41 @@ function toPsArgs(args) {
   return args.map((a) => `'${String(a).replace(/'/g, "''")}'`).join(",");
 }
 
-function download(url, dest) {
+/** 下载（断点续传 + 指数退避重试）。CI 大文件网络抖动必备。 */
+async function download(url, dest, opts = {}) {
+  const RETRIES = opts.retries != null ? opts.retries : 5;
   mk(path.dirname(dest));
+  for (let attempt = 1; attempt <= RETRIES; attempt++) {
+    try { await downloadOnce(url, dest); return; }
+    catch (e) {
+      if (attempt === RETRIES) throw e;
+      const wait = Math.min(30000, 2000 * Math.pow(2, attempt - 1));
+      console.log(`  下载失败(${e.message.slice(0, 80)})，${wait / 1000}s 后重试(${attempt + 1}/${RETRIES})…`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
+function downloadOnce(url, dest) {
   return new Promise((resolve, reject) => {
-    const get = (u) => https.get(u, (res) => {
+    const start = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+    const headers = { "user-agent": "node" };
+    if (start > 0) headers["range"] = `bytes=${start}-`;
+    const get = (u) => https.get(u, { headers }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume(); return get(res.headers.location);
       }
-      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`${u} -> HTTP ${res.statusCode}`)); }
-      const f = fs.createWriteStream(dest);
+      if (res.statusCode !== 200 && res.statusCode !== 206) {
+        res.resume(); return reject(new Error(`${u} -> HTTP ${res.statusCode}`));
+      }
+      const f = fs.createWriteStream(dest, { flags: (start > 0 && res.statusCode === 206) ? "a" : "w" });
       res.pipe(f);
       f.on("finish", () => f.close(resolve));
-    }).on("error", reject);
+      f.on("error", reject);
+    }).on("error", (e) => {
+      try { fs.unlinkSync(dest); } catch (_) {/*noop*/}
+      reject(e);
+    });
     get(url);
   });
 }
