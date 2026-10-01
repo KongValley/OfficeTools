@@ -16,6 +16,7 @@
     { id: "compress", name: "PDF 压缩" },
     { id: "pdf2img", name: "PDF 转图片" },
     { id: "img2pdf", name: "图片转 PDF" },
+    { id: "imgcompress", name: "图片压缩" },
     { id: "ocr", name: "OCR 识别" },
     { id: "security", name: "加密与水印" },
     { id: "settings", name: "设置" },
@@ -28,6 +29,7 @@
     compress: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/><line x1="8" y1="12" x2="16" y2="12"/>',
     pdf2img: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
     img2pdf: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 12 12 17 22 12"/><polyline points="2 17 12 22 22 17"/>',
+    imgcompress: '<path d="M4 14h6v6"/><path d="M10 20l-6-6"/><path d="M20 10V4h-6"/><path d="M14 10l6-6"/><line x1="4" y1="4" x2="9" y2="9"/><line x1="15" y1="15" x2="20" y2="20"/>',
     ocr: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="3" y1="12" x2="21" y2="12"/>',
     security: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
@@ -73,6 +75,7 @@
     compress: { title: "把 PDF 拖进来", sub: "压缩图片精度以减小体积" },
     pdf2img: { title: "把 PDF 拖进来", sub: "按 DPI 渲染成 PNG/JPG" },
     img2pdf: { title: "把图片拖进来", sub: "按当前文件顺序合成 PDF", sortable: true },
+    imgcompress: { title: "把图片拖进来", sub: "JPG/PNG 批量压缩，可调质量与缩放" },
     ocr: { title: "把扫描件拖进来", sub: "支持 PDF 与图片，识别为文本或可搜索 PDF" },
     security: { title: "把 PDF 拖进来", sub: "AES-256 加密/解密，或添加文字水印" },
   };
@@ -361,6 +364,26 @@
     </div>`;
   }
 
+  function pageImgCompress() {
+    return `<div class="page" id="page-imgcompress">
+      <h2>图片压缩</h2>
+      <div class="card"><h3>选项</h3>
+        <div class="row"><label>压缩质量</label><select id="ic-mode">
+          <option value="q30" selected>强力（质量 30，体积最小）</option>
+          <option value="q60">均衡（质量 60，推荐）</option>
+          <option value="q85">轻度（质量 85，接近原画质）</option></select>
+        <label>缩放</label><select id="ic-scale">
+          <option value="0" selected>不缩放</option>
+          <option value="100">100%（不缩放）</option>
+          <option value="75">75%</option><option value="50">50%</option><option value="25">25%</option></select></div>
+        <div class="hint">JPG 按质量重编码；PNG 无损格式仅在缩放时重编码（不缩放时直接输出）。
+          处理后输出「原名-压缩.jpg/png」到源文件同目录。</div>
+      </div>
+      ${fileCard()}
+      <button class="primary" id="go-imgcompress">开始压缩</button>
+    </div>`;
+  }
+
   function pageOcr() {
     return `<div class="page" id="page-ocr">
       <h2>OCR 文字识别</h2>
@@ -451,7 +474,7 @@
   function buildPages() {
     $("#pages").innerHTML =
       pageConvert() + pagePages() + pageCompress() + pagePdf2Img() +
-      pageImg2Pdf() + pageOcr() + pageSecurity() + pageSettings() + `
+      pageImg2Pdf() + pageImgCompress() + pageOcr() + pageSecurity() + pageSettings() + `
       <div class="card" id="task-card">
         <h3>任务 <span id="task-summary"></span>
         <button class="primary" id="btn-cancel" style="display:none;margin-left:auto;padding:4px 14px;font-size:13px">取消任务</button>
@@ -469,7 +492,7 @@
 
     bindCommon();
     bindConvert(); bindPages(); bindCompress(); bindPdf2Img();
-    bindImg2Pdf(); bindOcr(); bindSecurity(); bindSettings();
+    bindImg2Pdf(); bindImgCompress(); bindOcr(); bindSecurity(); bindSettings();
   }
 
   function bindCommon() {
@@ -566,6 +589,16 @@
 
   function bindImg2Pdf() {
     $("#go-img2pdf").addEventListener("click", () => submit("img2pdf", {}));
+  }
+
+  function bindImgCompress() {
+    $("#go-imgcompress").addEventListener("click", () => {
+      const m = $("#ic-mode").value;
+      submit("imgcompress", {
+        quality: Number(m.slice(1)) || 60,
+        scale: Number($("#ic-scale").value) || 0,
+      });
+    });
   }
 
   function bindOcr() {

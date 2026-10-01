@@ -302,6 +302,139 @@ def cmd_pdf2img(args):
     return {"ok": True, "data": d}
 
 
+def _save_img(data, path):
+    """原子写图片（tmp + replace），返回字节数。"""
+    d = os.path.dirname(path)
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)  # 输出目录可能不存在（UI 允许自定义）
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    return os.path.getsize(path)
+
+
+def _img_px_size(path):
+    """读 JPEG/PNG 文件头的原始像素宽高（不依赖 PyMuPDF 页面语义）。
+    读不到返回 None（调用方回落页面渲染尺寸）。"""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(64 * 1024)
+    except OSError:
+        return None
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and len(head) >= 24:
+        w = int.from_bytes(head[16:20], "big")
+        h = int.from_bytes(head[20:24], "big")
+        return (w, h) if w and h else None
+    if head[:2] == b"\xff\xd8":  # JPEG：扫 SOF0-SOF15
+        i = 2
+        n = len(head)
+        while i + 9 < n:
+            if head[i] != 0xFF:
+                i += 1
+                continue
+            marker = head[i + 1]
+            if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7 or marker == 0x01:
+                i += 2
+                continue
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                h = int.from_bytes(head[i + 5:i + 7], "big")
+                w = int.from_bytes(head[i + 7:i + 9], "big")
+                return (w, h) if w and h else None
+            seglen = int.from_bytes(head[i + 2:i + 4], "big")
+            if seglen < 2:
+                return None
+            i += 2 + seglen
+    return None
+
+
+def cmd_imgcompress(args):
+    """图片压缩：质量档 + 可选缩放，逐张输出到 out_dir。
+
+    JPG/JPEG 走质量重编码；PNG 仅在缩放时重栅格化（PyMuPDF 无 PNG 质量控制，
+    不缩放直接改缩放以外不做无谓重编码——重编码只会变大）。BMP/WebP 等统一
+    转成 PNG 输出。
+    """
+    files = args.get("files")
+    if not files:
+        files = [args["in"]]
+    outdir = args.get("out_dir") or os.path.dirname(files[0])
+    os.makedirs(outdir, exist_ok=True)
+    try:
+        quality = int(args.get("quality") or 80)
+    except (TypeError, ValueError):
+        quality = 80
+    quality = max(10, min(95, quality))
+    # 缩放：0-100（百分比）；<=0 或缺省 = 不缩放
+    try:
+        scale = float(args.get("scale") or 0)
+    except (TypeError, ValueError):
+        scale = 0.0
+    scale = scale / 100.0 if scale > 1 else scale  # 容忍传 80 / 0.8
+    if scale and not (0.05 <= scale <= 1.0):
+        return _err("缩放比例需在 5%–100% 之间")
+
+    outs, total_in, total_out = [], 0, 0
+    for f in files:
+        if not os.path.isfile(f):
+            return _err("文件不存在：" + f)
+        base = os.path.splitext(os.path.basename(f))[0]
+        ext = os.path.splitext(f)[1].lower()
+        # fitz.open 对坏图不立即抛错（延迟到 load_page），故统一包住解码阶段
+        try:
+            doc = fitz.open(f)
+            page = doc[0]
+            images = page.get_images(full=True)
+            xref = images[0][0] if images else None
+            pix = fitz.Pixmap(doc, xref) if xref else None
+            if pix is None or pix.alpha or pix.n > 4:
+                # 取不到内嵌图或带透明/CMYK：栅格化页面（RGB，透明底变白）
+                pix = page.get_pixmap(alpha=False)
+            if pix.n > 3:  # CMYK 等 → 转 RGB（否则 JPEG 编码失败）
+                pix = fitz.Pixmap(fitz.csRGB, pix)
+        except Exception:
+            doc.close()
+            return _err("无法读取图片（格式不支持或已损坏）：" + f)
+        try:
+            if scale:
+                # 目标像素 = 原图像素 × scale。page.get_pixmap(dpi=) 的 px = 页面pt × dpi/72，
+                # 原图嵌入 dpi 未知，故先从文件头取真实像素（JPEG SOF / PNG IHDR）反算 dpi。
+                rect = page.rect
+                hdr = _img_px_size(f)
+                if hdr and rect.width:
+                    base_dpi = hdr[0] * 72.0 / rect.width
+                else:  # 头读不到（WebP/BMP 等）→ 按 96dpi 常见嵌入值兜底
+                    base_dpi = 96.0
+                pix = page.get_pixmap(dpi=max(1, int(round(base_dpi * scale))), alpha=False)
+            if ext in (".jpg", ".jpeg"):
+                out_ext = ".jpg"
+                data = pix.tobytes("jpg", jpg_quality=quality)
+            elif ext == ".png" and not scale:
+                # PNG 不缩放 → 直接透传，避免无谓重编码导致体积反增
+                out_ext = ".png"
+                with open(f, "rb") as src:
+                    data = src.read()
+            else:
+                out_ext = ".png"
+                if scale:
+                    data = pix.tobytes("png")
+                else:
+                    with open(f, "rb") as src:
+                        data = src.read()
+            out_path = os.path.join(outdir, base + "-压缩" + out_ext)
+            total_in += os.path.getsize(f)
+            total_out += _save_img(data, out_path)
+            outs.append(out_path)
+        finally:
+            doc.close()
+    if not outs:
+        return _err("未生成任何输出")
+    d = {"out": outs[0], "count": len(outs), "in_bytes": total_in, "out_bytes": total_out}
+    if len(outs) > 1:
+        d["extra_outputs"] = outs[1:]
+    return {"ok": True, "data": d}
+
+
 def cmd_img2pdf(args):
     files = args.get("files") or []
     if not files:
@@ -450,6 +583,7 @@ COMMANDS = {
     "watermark": cmd_watermark,
     "pdf2img": cmd_pdf2img,
     "img2pdf": cmd_img2pdf,
+    "imgcompress": cmd_imgcompress,
 }
 
 
@@ -799,6 +933,54 @@ def selftest():
                          {"files": [img["data"]["out"], img["data"]["out"]],
                           "out": i2p},
                          verify=lambda d: None if d.get("images") == 2 else f"期望2页实得{d.get('images')}")
+
+        # ===== 用例 9b：imgcompress（质量 + 缩放） =====
+        # 生成一张大图让压缩比可断言（注意：1.23.7 的 Pixmap(cs,w,h) 无 samples 构造会抛
+        # "Illegal number of colorants"，必须显式给 samples + alpha 标志）
+        big_jpg = os.path.join(tmp, "大图.jpg")
+        bw, bh = 1400, 1000
+        pm = fitz.Pixmap(fitz.csRGB, bw, bh,
+                         bytes([250, 250, 250]) * (bw * bh), False)
+        with open(big_jpg, "wb") as fh:
+            fh.write(pm.tobytes("jpg", jpg_quality=95))
+        big_sz_in = os.path.getsize(big_jpg)
+        icdir = os.path.join(outdir, "图片压缩")
+        r = runner.check("imgcompress(q60)", "imgcompress",
+                         {"files": [big_jpg], "out_dir": icdir, "quality": 60, "scale": 0},
+                         verify=lambda d: None if os.path.isfile(d.get("out", "")) else "输出缺失",
+                         mem_assert_peak=200)
+        if r:
+            out_sz = os.path.getsize(r["data"]["out"])
+            print(f"        [CHECK] imgcompress q60 {big_sz_in}B→{out_sz}B")
+            if out_sz > big_sz_in * 0.7:
+                runner.fail.append(f"imgcompress q60 压缩不足: {big_sz_in}→{out_sz}")
+        r = runner.check("imgcompress(q30+50%)", "imgcompress",
+                         {"files": [big_jpg], "out_dir": icdir, "quality": 30, "scale": 50},
+                         verify=lambda d: None if d.get("out_bytes", 0) < d.get("in_bytes", 0)
+                         else "缩放后未减小",
+                         mem_assert_peak=200)
+        if r:
+            # 尺寸断言：缩 50% 后内嵌像素应为原图的 ~50%（防止矩阵按 pt 基准缩过头）
+            od = fitz.open(r["data"]["out"])
+            opm = od[0].get_pixmap(dpi=72)
+            od.close()
+            exp = (round(bw / 2), round(bh / 2))
+            if not (exp[0] * 0.9 <= opm.width <= exp[0] * 1.1
+                    and exp[1] * 0.9 <= opm.height <= exp[1] * 1.1):
+                runner.fail.append(
+                    f"imgcompress 缩放后尺寸异常: {opm.width}x{opm.height} 期望约{exp[0]}x{exp[1]}")
+                print(f"        [FAIL] imgcompress 缩放尺寸 {opm.width}x{opm.height} 期望 {exp[0]}x{exp[1]}")
+            else:
+                print(f"        [CHECK] imgcompress 尺寸 {opm.width}x{opm.height}（原 {bw}x{bh}，50%）")
+        # 错误分支：坏文件 → 中文提示
+        badimg = os.path.join(tmp, "坏图.png")
+        with open(badimg, "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\n" + b"garbage" * 100)
+        r = runner.call("imgcompress", {"in": badimg, "out_dir": icdir})
+        if r.get("ok") or "无法读取图片" not in str(r.get("error", "")):
+            runner.fail.append(f"imgcompress 坏图未返回中文报错: {r}")
+        else:
+            print("  [OK] imgcompress坏图中文提示")
 
         # ===== 用例 10：compress（gs） =====
         # 先生成一个大体积 PDF 再压（内嵌图），让压缩有可比性

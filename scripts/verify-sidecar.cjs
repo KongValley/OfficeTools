@@ -11,6 +11,15 @@ const { spawnSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
 const ARCHES = ["ia32", "x64"];
 
+/* 关键：先把改过的 sidecar/worker.py 同步进 staging，防止"改了源码忘同步"导致自检跑旧代码 */
+for (const a of ARCHES) {
+  const dst = path.join(ROOT, "staging", `sidecar-${a}`, "worker.py");
+  if (fs.existsSync(path.dirname(dst))) {
+    fs.copyFileSync(path.join(ROOT, "sidecar", "worker.py"), dst);
+    console.log(`已同步 worker.py → staging/sidecar-${a}`);
+  }
+}
+
 for (const arch of ARCHES) {
   const dir = path.join(ROOT, "staging", `sidecar-${arch}`);
   const py = path.join(dir, "python.exe");

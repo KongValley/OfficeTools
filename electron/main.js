@@ -51,7 +51,7 @@ let running = false;
 
 const TOOLS = new Set([
   "office2pdf", "pdf2word", "pdf_merge", "pdf_split", "pdf_extract", "pdf_delete",
-  "pdf_rotate", "pdf_compress", "pdf2img", "img2pdf", "ocr", "encrypt", "decrypt", "watermark",
+  "pdf_rotate", "pdf_compress", "pdf2img", "img2pdf", "imgcompress", "ocr", "encrypt", "decrypt", "watermark",
 ]);
 
 const OFFICE_EXT = [".doc", ".docx", ".rtf", ".odt", ".txt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"];
@@ -150,6 +150,19 @@ async function processFile(task, file, fileIndex, fileTotal, tmpDir, settings) {
     case "img2pdf": {
       out = path.join(outDir, `${stem}-图片合成.pdf`);
       await Engines.runSidecar("img2pdf", { files: task.files, out });
+      break;
+    }
+    case "imgcompress": {
+      if (!IMG_EXT.includes(ext(file))) throw new Error("仅支持图片文件");
+      const r = await Engines.runSidecar("imgcompress", {
+        in: file, out_dir: outDir,
+        quality: opts.quality, scale: opts.scale,
+      });
+      out = r.out;
+      const pct = r.in_bytes > 0 && r.out_bytes <= r.in_bytes
+        ? `，减小 ${(100 - r.out_bytes / r.in_bytes * 100).toFixed(0)}%`
+        : "";
+      message = r.count > 1 ? `压缩 ${r.count} 张${pct}` : `压缩完成${pct}`;
       break;
     }
     case "ocr": {
