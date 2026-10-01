@@ -58,7 +58,7 @@ jobs:
           $env:PYTHONIOENCODING = "utf-8"
           # 通过 JSONL 协议走产品路径：造 PDF → 合并 → 拆分 → 水印 → 加密 → 解密
           $input = @(
-            '{"id":1,"cmd":"pdf_pages","args":{"files":["samples/sample.pdf"],"out":"samples-out/m.pdf","op":"merge"}}'
+            '{"id":1,"cmd":"pdf_pages","args":{"files":["samples/sample.pdf","samples/sample.pdf"],"out":"samples-out/m.pdf","op":"merge"}}'
             '{"id":2,"cmd":"pdf_pages","args":{"in":"samples/sample.pdf","op":"split","out_dir":"samples-out"}}'
             '{"id":3,"cmd":"watermark","args":{"in":"samples/sample.pdf","out":"samples-out/wm.pdf","text":"内部水印","opacity":0.15}}'
             '{"id":4,"cmd":"encrypt","args":{"in":"samples/sample.pdf","out":"samples-out/enc.pdf","user_pw":"test1234"}}'

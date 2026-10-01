@@ -151,6 +151,9 @@ def _subset_and_deflate(doc):
 def _save(doc, path, what, count):
     if os.path.isdir(path):
         path = os.path.join(path, "output.pdf")
+    d = os.path.dirname(path)
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)  # 输出目录可能不存在（用户自定义目录/被清理）
     tmp = path + ".tmp"
     doc.save(tmp, **_subset_and_deflate(doc))
     doc.close()
@@ -168,6 +171,9 @@ def cmd_encrypt(args):
         return _err("打开密码至少 4 位")
     owner = args.get("owner_pw") or pwd
     out = args["out"]
+    d = os.path.dirname(out)
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
     try:
         try:
             doc.subset_fonts()
