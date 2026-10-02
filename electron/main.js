@@ -318,6 +318,20 @@ ipcMain.handle("toc-get", async (e, p) => {
   catch (e2) { return { error: e2.message }; }
 });
 
+/* 待办列表持久化：APP_DIR/todos.json。损坏/缺失按空列表处理（功能不阻断） */
+const TODOS = path.join(APP_DIR, "todos.json");
+ipcMain.handle("todo-load", () => {
+  try {
+    const list = JSON.parse(fs.readFileSync(TODOS, "utf8"));
+    return Array.isArray(list) ? list : [];
+  } catch (_) { return []; }
+});
+ipcMain.handle("todo-save", (e, list) => {
+  if (!Array.isArray(list)) return { ok: false, error: "数据格式错误" };
+  fs.writeFileSync(TODOS, JSON.stringify(list, null, 2));
+  return { ok: true };
+});
+
 function sizeLabel(bytes) {
   if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
   return Math.max(1, Math.round(bytes / 1024)) + " KB";

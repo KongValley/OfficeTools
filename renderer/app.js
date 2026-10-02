@@ -15,6 +15,9 @@
   /* ---------- 页面定义 ---------- */
   const PAGES = [
     { id: "convert", name: "格式转换" },
+    { id: "amount", name: "金额大写" },
+    { id: "time", name: "时间计算" },
+    { id: "todo", name: "待办列表" },
     { id: "pages", name: "PDF 页面工具" },
     { id: "tocpage", name: "目录书签" },
     { id: "misc", name: "PDF 整理" },
@@ -33,6 +36,9 @@
     pages: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
     tocpage: '<path d="M4 6h16M4 6l2-2M4 6l2 2M4 12h10M4 12l2-2M4 12l2 2M4 18h13M4 18l2-2M4 18l2 2"/>',
     misc: '<path d="M3 5h18v14H3z"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+    amount: '<path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+    time: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
+    todo: '<path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
     compress: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/><line x1="8" y1="12" x2="16" y2="12"/>',
     pdf2img: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
     img2pdf: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 12 12 17 22 12"/><polyline points="2 17 12 22 22 17"/>',
@@ -55,6 +61,104 @@
   const PAGE_SIZE = 50;
   const sizes = new Map();        // path -> 体积字符串
   const fileSpecs = new Map();    // path -> 用户填的页码串（merge 每文件）
+
+  /* ---------- 纯计算工具：金额大写 / 日期计算（无引擎依赖，无文件操作） ---------- */
+  /* 财务大写数字（人民币票据用），非日常计数 */
+  const CN_DIGITS = "零壹贰叁肆伍陆柒捌玖";
+  const CN_UNITS = ["", "拾", "佰", "仟"];
+  const CN_GROUPS = ["", "万", "亿", "万亿"];
+
+  /* 整数部分转财务大写（四位一组：个/万/亿/万亿）。
+     段内：数字间的连续零压缩为一个「零」（101 → 壹佰零壹）。
+     段间补零（满足其一）：
+       - 本组首位是被跳过的前导零（g[0]==="0"）：10001 → 壹万零壹
+       - 前一已输出组末位是零（/0$/）：1005000 → 壹佰万零伍仟
+     例：200020002 → 贰亿零贰万零贰；123456789 → 完整不补 */
+  function intToCn(intStr) {
+    const s = String(intStr).replace(/^0+/, "");
+    if (!s) return "";
+    const n = s.length;
+    let out = "";
+    let prevG = "";   // 上一个已输出组的原始四位串（含前导零）
+    for (let gi = Math.floor((n - 1) / 4); gi >= 0; gi--) {
+      const end = n - gi * 4;
+      const start = Math.max(0, end - 4);
+      if (start >= end) continue;
+      const g = s.slice(start, end);
+      let seg = "", zero = false;
+      for (let i = 0; i < g.length; i++) {
+        const d = Number(g[i]);
+        const unit = CN_UNITS[g.length - 1 - i];   // 组内位单位
+        if (d === 0) {
+          zero = true;
+        } else {
+          if (zero && seg) seg += "零";
+          seg += CN_DIGITS[d] + unit;
+          zero = false;
+        }
+      }
+      if (!seg) continue;                    // 全零组（如 100000 的低位组）不输出
+      // 补零：前组末位是零、或本组首位是零（二者只补一个「零」）
+      if (out && !out.endsWith("零") && (prevG.endsWith("0") || g[0] === "0")) out += "零";
+      out += seg + CN_GROUPS[gi];
+      prevG = g;
+    }
+    return out;
+  }
+
+  /* 金额（元）转人民币大写。分位按第三位四舍五入。 */
+  function amountToCn(input) {
+    const s = String(input).trim().replace(/,/g, "").replace(/元/g, "").replace(/[¥￥]/g, "");
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+    const neg = s.startsWith("-");
+    const abs = neg ? s.slice(1) : s;
+    const [ip, fp = ""] = abs.split(".");
+    // 第三位小数决定分位是否进位（0.005 → 1 分）
+    const cents = Math.round(Number("0." + (fp + "00").slice(0, 3)) * 100) % 100;
+    const jiao = Math.floor(cents / 10), fen = cents % 10;
+    const yuan = intToCn(ip) || "零";      // 0.05 → 零元零伍分
+    let out = yuan + "元";
+    if (cents === 0) {
+      out += "整";
+    } else if (jiao > 0) {
+      // 「整」只在无角无分时用；壹元伍角（分位为零）不加整
+      out += CN_DIGITS[jiao] + "角" + (fen > 0 ? CN_DIGITS[fen] + "分" : "");
+    } else {
+      out += "零" + CN_DIGITS[fen] + "分";   // 零角 X 分：角位为零显式补零
+    }
+    return (neg ? "负" : "") + out;
+  }
+
+  /* 日期工具：本地产字符串 → 本地 00:00 Date（避免 UTC 偏移） */
+  function parseDateStr(s) {
+    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(s).trim());
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (d.getFullYear() !== Number(m[1]) || d.getMonth() !== Number(m[2]) - 1
+      || d.getDate() !== Number(m[3])) return null;
+    return d;
+  }
+  function fmtDate(d) {
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  const DAY_MS = 86400000;
+  function daysBetween(a, b) {
+    return Math.round((b - a) / DAY_MS);
+  }
+  /* [a,b] 区间内周一至五的天数；a > b 时按交换后的区间计算 */
+  function workdaysBetween(a, b) {
+    if (daysBetween(a, b) < 0) return workdaysBetween(b, a);
+    let n = 0;
+    for (let t = a.getTime(); t <= b.getTime(); t += DAY_MS) {
+      const wd = new Date(t).getDay();
+      if (wd !== 0 && wd !== 6) n++;
+    }
+    return n;
+  }
+  function addDays(d, n) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  }
 
   const state = { files: [] };    // 当前页选择的文件
 
@@ -389,6 +493,73 @@
     </div>`;
   }
 
+  /* 金额大写 / 时间计算 / 待办三个工具页：纯前端计算 + 待办走 IPC 持久化 */
+  function pageAmount() {
+    return `<div class="page" id="page-amount">
+      <h2>金额大写转换</h2>
+      <div class="card"><h3>金额 → 大写</h3>
+        <div class="row"><label>小写金额</label>
+        <input type="text" id="amt-in" placeholder="如 1234.56 或 1,234.56" style="min-width:220px"></div>
+        <div class="row"><label>大写金额</label>
+        <output id="amt-out" style="font-size:16px;color:#1e293b;min-height:24px">—</output></div>
+        <div class="hint">支持负数与最多两位小数；分位按第三位四舍五入。可直接粘贴含逗号/¥/「元」的文本。</div>
+      </div>
+      <div class="card"><h3>常用金额速查</h3>
+        <div class="row" id="amt-quick">
+          <button class="small" data-amt="100">100</button>
+          <button class="small" data-amt="1000">1,000</button>
+          <button class="small" data-amt="10000">10,000</button>
+          <button class="small" data-amt="100000">100,000</button>
+          <button class="small" data-amt="1000000">100万</button>
+          <button class="small" data-amt="1234.56">1,234.56</button>
+        </div>
+        <div class="hint">点击填入上方输入框。</div>
+      </div>
+    </div>`;
+  }
+
+  function pageTime() {
+    return `<div class="page" id="page-time">
+      <h2>时间计算器</h2>
+      <div class="card"><h3>日期间隔</h3>
+        <div class="row"><label>开始</label><input type="text" id="dt-a" placeholder="YYYY-MM-DD">
+        <label>结束</label><input type="text" id="dt-b" placeholder="YYYY-MM-DD">
+        <button class="small" id="dt-calc">计算</button></div>
+        <div class="row" id="dt-diff"></div>
+        <div class="hint">间隔天数 = 结束 − 开始（不含首日）。结束早于开始时自动交换。</div>
+      </div>
+      <div class="card"><h3>工作日推算</h3>
+        <div class="row"><label>起始日</label><input type="text" id="wd-start" placeholder="YYYY-MM-DD">
+        <label>天数</label><input type="number" id="wd-days" value="10" min="1" max="2000" style="min-width:70px">
+        <button class="small" id="wd-calc">推算</button></div>
+        <div class="row" id="wd-out"></div>
+        <div class="hint">从起始日次日开始数 N 个工作日（跳过周六周日），给出截止日与中间经历的周末数。</div>
+      </div>
+      <div class="card"><h3>日期相加</h3>
+        <div class="row"><label>基准日</label><input type="text" id="ad-start" placeholder="YYYY-MM-DD">
+        <label>天数</label><input type="number" id="ad-days" value="30" style="min-width:80px">
+        <button class="small" id="ad-calc">计算</button></div>
+        <div class="row" id="ad-out"></div>
+        <div class="hint">自然日加减，可为负数。跨月跨年与闰年 2 月 29 日均已处理。</div>
+      </div>
+    </div>`;
+  }
+
+  function pageTodo() {
+    return `<div class="page" id="page-todo">
+      <h2>待办列表</h2>
+      <div class="card">
+        <div class="row"><input type="text" id="todo-in" placeholder="输入待办事项，回车添加" style="flex:1;min-width:240px">
+        <button class="primary" id="todo-add" style="padding:7px 18px;font-size:14px">添加</button></div>
+        <div class="row"><label class="hint">
+          <input type="checkbox" id="todo-hide-done"> 隐藏已完成</label>
+          <span class="hint" id="todo-count"></span>
+          <button class="link" id="todo-clear-done" style="margin-left:auto">清除已完成</button></div>
+        <div id="todo-list" class="todo-list"></div>
+      </div>
+    </div>`;
+  }
+
   function pageToc() {
     return `<div class="page" id="page-tocpage">
       <h2>目录书签</h2>
@@ -590,14 +761,14 @@
         <div class="row"><button id="set-openlog">打开日志目录</button>
         <button id="set-reset" class="danger">恢复默认设置</button>
         <span class="hint">排障时请把最新日志发给维护人员</span></div>
-      <div class="hint">版本 1.2.0 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
+      <div class="hint">版本 1.3.0 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
     </div>`;
   }
 
   /* ---------- 初始化 ---------- */
   function buildPages() {
     $("#pages").innerHTML =
-      pageConvert() + pagePages() + pageToc() + pageMisc() + pageCompress() + pagePdf2Img() +
+      pageConvert() + pageAmount() + pageTime() + pageTodo() + pagePages() + pageToc() + pageMisc() + pageCompress() + pagePdf2Img() +
       pageImg2Pdf() + pageImgCompress() + pageOcr() + pageSecurity() + pageSettings() + `
       <div class="card" id="task-card">
         <h3>任务记录 <span id="task-summary"></span>
@@ -615,7 +786,8 @@
       </div>`;
 
     bindCommon();
-    bindConvert(); bindPages(); bindToc(); bindMisc(); bindCompress(); bindPdf2Img();
+    bindConvert(); bindAmount(); bindTime(); bindTodo();
+    bindPages(); bindToc(); bindMisc(); bindCompress(); bindPdf2Img();
     bindImg2Pdf(); bindImgCompress(); bindOcr(); bindSecurity(); bindSettings();
   }
 
@@ -717,6 +889,121 @@
       }
       submit("pdf_" + (op === "merge" ? "merge" : op), opts);
     });
+  }
+
+  /* ---------- 金额大写 / 时间计算 / 待办：纯前端工具，不走任务队列 ---------- */
+  function bindAmount() {
+    const show = () => {
+      const v = $("#amt-in").value;
+      if (!v.trim()) { $("#amt-out").textContent = "—"; return; }
+      const cn = amountToCn(v);
+      $("#amt-out").textContent = cn === null ? "无法识别：请输入数字（如 1234.56）" : cn;
+    };
+    $("#amt-in").addEventListener("input", show);
+    $$("#amt-quick [data-amt]").forEach((b) => b.addEventListener("click", () => {
+      $("#amt-in").value = b.dataset.amt.replace(/,/g, "");
+      show();
+    }));
+  }
+
+  function bindTime() {
+    const span = (a, b) => {
+      const total = daysBetween(a, b);
+      const years = a.getFullYear() === b.getFullYear()
+        ? 0 : b.getFullYear() - a.getFullYear();
+      const months = (b.getFullYear() - a.getFullYear()) * 12
+        + (b.getMonth() - a.getMonth()) - (b.getDate() < a.getDate() ? 1 : 0);
+      const wd = workdaysBetween(a, b) - 1;   // 间隔内工作日（不含首日）
+      return `共 <b>${total}</b> 天 = ${(total / 7).toFixed(1)} 周 ≈ ${Math.floor(total / 30)} 个月`
+        + `；折合 ${months} 个整月 ${years} 年；工作日 <b>${Math.max(0, wd)}</b> 天`;
+    };
+    const calc = () => {
+      const a = parseDateStr($("#dt-a").value), b = parseDateStr($("#dt-b").value);
+      const box = $("#dt-diff");
+      if (!a || !b) { box.innerHTML = '<span class="hint">请输入两个有效日期（YYYY-MM-DD）</span>'; return; }
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      box.innerHTML = `<span>${fmtDate(lo)} → ${fmtDate(hi)}：${span(lo, hi)}</span>`
+        + (a > b ? ' <span class="hint">（已自动交换，结束早于开始）</span>' : "");
+    };
+    $("#dt-calc").addEventListener("click", calc);
+    $("#dt-a").addEventListener("keydown", (e) => { if (e.key === "Enter") calc(); });
+    $("#dt-b").addEventListener("keydown", (e) => { if (e.key === "Enter") calc(); });
+
+    const wd = () => {
+      const a = parseDateStr($("#wd-start").value);
+      const n = Number($("#wd-days").value) || 0;
+      const box = $("#wd-out");
+      if (!a || n < 1) { box.innerHTML = '<span class="hint">请输入有效起始日与天数（≥1）</span>'; return; }
+      let left = n, d = a, weekends = 0;
+      while (left > 0) {
+        d = addDays(d, 1);
+        const w = d.getDay();
+        if (w === 0 || w === 6) weekends++;
+        else left--;
+      }
+      box.innerHTML = `<span>${fmtDate(a)} 后第 <b>${n}</b> 个工作日 → <b>${fmtDate(d)}</b>`
+        + `（跨 ${weekends} 个周末日）</span>`;
+    };
+    $("#wd-calc").addEventListener("click", wd);
+    $("#wd-start").addEventListener("keydown", (e) => { if (e.key === "Enter") wd(); });
+
+    const ad = () => {
+      const a = parseDateStr($("#ad-start").value);
+      const n = Number($("#ad-days").value) || 0;
+      const box = $("#ad-out");
+      if (!a) { box.innerHTML = '<span class="hint">请输入有效起始日</span>'; return; }
+      const w = new Date(a.getFullYear(), a.getMonth(), a.getDate() + n).getDay();
+      const names = ["日", "一", "二", "三", "四", "五", "六"];
+      box.innerHTML = `<span>${fmtDate(a)} ${n >= 0 ? "+" : ""}${n} 天 = <b>${fmtDate(addDays(a, n))}</b>`
+        + `（周${names[w]}）</span>`;
+    };
+    $("#ad-calc").addEventListener("click", ad);
+    $("#ad-start").addEventListener("keydown", (e) => { if (e.key === "Enter") ad(); });
+  }
+
+  /* 待办：item {id, text, done}，主进程 JSON 文件持久化（APP_DIR/todos.json） */
+  let todos = [];
+  function renderTodos() {
+    const hide = $("#todo-hide-done").checked;
+    const list = hide ? todos.filter((t) => !t.done) : todos;
+    $("#todo-count").textContent = todos.length
+      ? `共 ${todos.length} 项，完成 ${todos.filter((t) => t.done).length} 项` : "";
+    $("#todo-list").innerHTML = list.length ? list.map((t) => `
+      <div class="todo-item${t.done ? " done" : ""}" data-id="${t.id}">
+        <input type="checkbox" data-tg="${t.id}" ${t.done ? "checked" : ""}>
+        <span class="tt">${esc(t.text)}</span>
+        <button class="link" data-td="${t.id}">删除</button>
+      </div>`).join("") : '<div class="hint" style="padding:12px;text-align:center">暂无待办，输入内容后回车添加</div>';
+    $$("[data-tg]").forEach((cb) => cb.addEventListener("change", () => {
+      const it = todos.find((x) => x.id === cb.dataset.tg);
+      if (it) { it.done = cb.checked; saveTodos(); }
+    }));
+    $$("[data-td]").forEach((b) => b.addEventListener("click", () => {
+      todos = todos.filter((x) => x.id !== b.dataset.td);
+      saveTodos();
+    }));
+  }
+  async function saveTodos() {
+    renderTodos();
+    try { await window.kit.todoSave(todos); } catch (e) { console.error("待办保存失败", e); }
+  }
+  function bindTodo() {
+    $("#todo-add").addEventListener("click", addTodo);
+    $("#todo-in").addEventListener("keydown", (e) => { if (e.key === "Enter") addTodo(); });
+    $("#todo-hide-done").addEventListener("change", renderTodos);
+    $("#todo-clear-done").addEventListener("click", () => {
+      todos = todos.filter((t) => !t.done);
+      saveTodos();
+    });
+    window.kit.todoLoad().then((list) => { todos = Array.isArray(list) ? list : []; renderTodos(); })
+      .catch(() => { todos = []; renderTodos(); });
+  }
+  function addTodo() {
+    const v = $("#todo-in").value.trim();
+    if (!v) return;
+    todos.push({ id: "t" + Date.now() + Math.random().toString(36).slice(2, 6), text: v, done: false });
+    $("#todo-in").value = "";
+    saveTodos();
   }
 
   /* PDF 整理页：op 切换显隐对应参数行 */

@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld("kit", {
   submitTask(tool, files, options) { return ipcRenderer.invoke("submit-task", tool, files, options); },
   cancelTask(taskId) { return ipcRenderer.invoke("cancel-task", taskId); },
   tocGet(file) { return ipcRenderer.invoke("toc-get", file); },
+  todoLoad() { return ipcRenderer.invoke("todo-load"); },
+  todoSave(list) { return ipcRenderer.invoke("todo-save", list); },
   getSettings() { return ipcRenderer.invoke("get-settings", {}); },
   setSettings(cfg) { return ipcRenderer.invoke("set-settings", cfg); },
   openLogDir() { return ipcRenderer.invoke("open-log-dir"); },
