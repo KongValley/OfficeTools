@@ -312,24 +312,18 @@ const tesseract = async (arch, api, tag) => {
     console.log(`  下载 ${assetName} ...`);
     await download(url, f);
   }
-  // 安装器是带壳 SFX：脚本内无法可靠静默提取（Start-Process 对 /S /D= 转发不稳）。
-  // 方案：7za 试解；失败则保留安装包缓存并输出手动提取指引，不阻塞其余引擎。
+  // 安装器是 NSIS（含 'NullsoftInst' 标记），与 Ghostscript 同样走 /S /D= 静默安装。
+  // 原先用 7za x 解包是错的：仓库随附的 7za 是精简构建，无 Nsis codec，必然失败，
+  // 导致 CI 全新检出时 OCR 引擎从未被装上（实测 v1.4.0 构建日志 'OCR 未安装'）。
+  // 代价：/D= 需要管理员权限（非提权会话返回 EACCES），与 GS 的约束一致。
   const tmp = path.join(os.tmpdir(), "kit-tess");
   fs.rmSync(tmp, { recursive: true, force: true });
   mk(tmp);
-  let ok = false;
-  try {
-    const sz = path.join(ROOT, "node_modules", "7zip-bin", "win", process.arch === "ia32" ? "x86" : "x64", "7za.exe");
-    if (fs.existsSync(sz)) {
-      spawnSync(sz, ["x", f, `-o${tmp}`, "-y"], { stdio: "pipe", timeout: 600e3 });
-      ok = fs.readdirSync(tmp).some((e) => e.toLowerCase().endsWith(".exe"));
-    }
-  } catch (_) {/*noop*/}
-  if (!ok) {
-    console.log(`  自动提取失败。请手动执行一次 ${path.basename(f)} 安装到任意目录，`);
-    console.log(`  然后把其中的 tesseract.exe、*.dll 与 tessdata 子目录整体复制到：`);
-    console.log(`    ${target}`);
-    console.log(`  完成后重跑 npm run fetch:engines 即可。`);
+  // NSIS: /S 静默；/D= 指定目录（必须放最后，且不能引号包裹）
+  ex(f, ["/S", `/D=${tmp}`], { timeout: 600e3 });
+  if (!fs.existsSync(path.join(tmp, "tesseract.exe"))) {
+    console.log(`  静默安装未产出 tesseract.exe。请以管理员身份运行一次 npm run fetch:engines，`);
+    console.log(`  或手动执行安装包后把内容复制到 ${target}`);
     fs.rmSync(tmp, { recursive: true, force: true });
     return false;
   }

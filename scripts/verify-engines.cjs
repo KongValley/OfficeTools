@@ -174,6 +174,7 @@ const CHECKS = [
     name: "Tesseract 5.4.0.20240606",
     license: "Apache-2.0",
     kind: "structural",
+    arches: ["x64"],
     mark: () => "tesseract.exe",
     engine: () => path.join(ENG, "tesseract-x64", "tesseract"),
     installer: () => path.join(CACHE, "tesseract-ocr-w64-setup-5.4.0.20240606.exe"),
@@ -190,6 +191,11 @@ for (const arch of arches) {
   if (!["x64", "ia32"].includes(arch)) { console.error(`未知架构 ${arch}（x64|ia32）`); process.exit(2); }
   console.log(`\n================ ${arch} ================`);
   for (const c of CHECKS) {
+    if (c.arches && !c.arches.includes(arch)) {
+      console.log(`  [SKIP] ${c.name}: 该组件不提供 ${arch}`);
+      skip++;
+      continue;
+    }
     if (c.kind === "full") {
       const localDir = c.engine(arch);
       if (!fs.existsSync(localDir)) { console.log(`  [SKIP] ${c.name}: 本地不存在 ${path.relative(ROOT, localDir)}`); skip++; continue; }
