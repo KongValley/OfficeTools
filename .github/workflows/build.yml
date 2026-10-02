@@ -103,6 +103,11 @@ jobs:
         shell: pwsh
         run: node scripts/build-sidecar.cjs
 
+      # ---- 引擎来源校验：证明 engines/ 是官方安装包未修改产物（AGPL/GPL §6 依据）----
+      - name: Verify engine provenance
+        shell: pwsh
+        run: node scripts/verify-engines.cjs
+
       # ---- 打包双架构 ----
       - name: Build x64 installer
         shell: pwsh

@@ -159,11 +159,31 @@ function adminExtract(installer, targetDir) {
   fs.renameSync(out, targetDir);
 }
 
+/** LibreOffice 目录里的真实版本（version.ini: MsiProductVersion） */
+function loVersion(dir) {
+  try {
+    const t = fs.readFileSync(path.join(dir, "program", "version.ini"), "utf8");
+    return (t.match(/MsiProductVersion=(.*)/) || [])[1]?.trim() || null;
+  } catch (_) { return null; }
+}
+
+/** 目录存在且版本匹配才跳过，避免旧版本伪装成目标版本 */
+function versionOk(dir, want) {
+  if (!fs.existsSync(path.join(dir, "program", "soffice.exe"))) return false;
+  const v = loVersion(dir);
+  if (v !== want) {
+    console.log(`  发现 ${v}（需要 ${want}），将重新获取`);
+  }
+  return v === want;
+}
+
 const libreOffice = async (arch, url) => {
   const dir = path.join(ENG, `lo-${arch}`);
-  console.log(`\n=== LibreOffice ${arch} ===`);
-  if (fs.existsSync(path.join(dir, "program", "soffice.exe"))) {
-    console.log("  已存在，跳过"); return;
+  console.log(`\n=== LibreOffice 7.6.7.2 ${arch} ===`);
+  // 不能只看 soffice.exe 存在：历史上 lo-ia32 目录残留的是 7.3.7.2（旧 MSI 解包），
+  // 版本不符时必须重取，否则 notices 声称 7.6.7.2 实际跑 7.3.7.2 是虚假陈述。
+  if (versionOk(dir, "7.6.7.2")) {
+    console.log("  已存在 7.6.7.2，跳过"); return;
   }
   const msi = path.join(CACHE, `LibreOffice_7.6.7.2_${arch === "ia32" ? "Win_x86" : "Win_x86-64"}.msi`);
   if (!fs.existsSync(msi) || fs.statSync(msi).size < 1e8) {
