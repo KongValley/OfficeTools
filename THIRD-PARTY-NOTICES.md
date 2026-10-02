@@ -66,7 +66,7 @@
 | 组件 | 版本 | 许可证 | 用途 | 源码 / 许可地址 |
 |---|---|---|---|---|
 | Electron | 22.3.27 | MIT | 应用外壳（Chromium + Node） | <https://github.com/electron/electron> |
-| Tesseract OCR | 5.4.0.20240606 | Apache-2.0 | OCR 识别（x64 包） | <https://github.com/UB-Mannheim/tesseract> |
+| Tesseract OCR | 5.4.0.20240606 | Apache-2.0 | OCR 识别（**仅限含该组件的 x64 构建**） | <https://github.com/UB-Mannheim/tesseract> |
 | tessdata_fast | 4.0.0 | Apache-2.0 | OCR 语言数据（chi_sim / eng） | <https://github.com/tesseract-ocr/tessdata_fast> |
 | opencv-python-headless | 4.8.1.78 | Apache-2.0 | PDF 页转图片 | <https://github.com/opencv/opencv-python> |
 | numpy | 1.24.4 | BSD-3-Clause | 数值运算（opencv/pdf2docx 依赖） | <https://github.com/numpy/numpy> |

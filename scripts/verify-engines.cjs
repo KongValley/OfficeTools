@@ -105,7 +105,7 @@ function structuralCheck(localDir, exeName, installerPath, installerName) {
   // GS 的 exe 在 bin/ 子目录；其余在目录根部
   const marker = [path.join(localDir, exeName), path.join(localDir, "bin", exeName)]
     .find((p) => fs.existsSync(p));
-  if (!marker) return { err: `未找到 ${exeName}（试过目录根与 bin/）` };
+  if (!marker) return { warn: `未找到 ${exeName}（该组件在本次构建中不可用）` };
 
   // 时间锚点用"安装器 mtime"，不是解包时间：所有解包产物都应 >= 安装器时间，
   // 人为事后改动会落在解包动作之后——用解包产物的**最大 mtime**与安装器时间差判断无意义。
@@ -141,6 +141,7 @@ function structuralCheck(localDir, exeName, installerPath, installerName) {
 
 function reportStructural(name, license, note, res) {
   if (res.skip) { console.log(`  [SKIP] ${name}: ${res.skip}`); skip++; return; }
+  if (res.warn) { console.log(`  [WARN] ${name}: ${res.warn}`); warn++; return; }
   if (res.err) { console.log(`  [ERR ] ${name}: ${res.err}`); fail++; return; }
   const clean = res.problems.length === 0;
   console.log(`  ${clean ? "[OK  ]" : "[FAIL]"} ${name}  -> ${clean ? "UNMODIFIED(结构证据)" : "MODIFIED"}`);
@@ -182,7 +183,7 @@ const CHECKS = [
   },
 ];
 
-let fail = 0, skip = 0, pass = 0;
+let fail = 0, skip = 0, warn = 0, pass = 0;
 
 const only = (process.argv[2] || "").replace(/^--?/, "");
 const arches = only ? [only] : ["x64", "ia32"];
@@ -223,7 +224,11 @@ for (const arch of arches) {
   }
 }
 
-console.log(`\n汇总: ${pass} 一致 / ${skip} 跳过 / ${fail} 异常`);
+console.log(`\n汇总: ${pass} 一致 / ${skip} 跳过 / ${warn} 组件缺失 / ${fail} 异常`);
+if (warn) {
+  console.log("注意：有组件在本次构建中未随包分发（如 Tesseract），对应安装包不含该功能；");
+  console.log("      请在 README/发布说明中如实标注，勿让 notices 与实际包内容不符。");
+}
 if (fail) {
   console.log("\n结论：存在被修改或来源不明的引擎文件。按 GPL/AGPL §6 必须发布改动后的对应源码树；");
   console.log("      若差异仅为本地生成内容（缓存/日志/用户 profile），请清理后重跑。");
