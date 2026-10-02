@@ -67,10 +67,12 @@ const base = {
     { from: `engines/lo${SUFFIX}`, to: "lo" },
     { from: `engines/gs${SUFFIX}`, to: "gs" },
     ...(hasTesseract ? [{ from: `engines/tesseract${SUFFIX}`, to: "tesseract" }] : []),
-    // 许可证随包分发：GPL/AGPL 要求安装包自身携带许可与源码指引
-    { from: path.join(ROOT, "THIRD-PARTY-NOTICES.md"), to: "licenses" },
-    { from: path.join(ROOT, "LICENSE.md"), to: "licenses" },
-    { from: path.join(ROOT, "licenses", "MPL-2.0.txt"), to: "licenses" },
+    // 许可证随包分发：GPL/AGPL 要求安装包自身携带许可与源码指引。
+    // 注意 to: 必须是**不同的目标路径**——多个 from 写同一个 to 时，
+    // electron-builder 会把第一个当目录创建，后续文件 copyfile 到该路径报 EBUSY。
+    { from: path.join(ROOT, "THIRD-PARTY-NOTICES.md"), to: "licenses/THIRD-PARTY-NOTICES.md" },
+    { from: path.join(ROOT, "LICENSE.md"), to: "licenses/LICENSE.md" },
+    { from: path.join(ROOT, "licenses", "MPL-2.0.txt"), to: "licenses/MPL-2.0.txt" },
   ],
   forceCodeSigning: false,
   win: {
