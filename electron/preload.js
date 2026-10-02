@@ -1,3 +1,4 @@
+// 许可证：GPL-3.0-or-later，见仓库根目录 LICENSE.md 与 THIRD-PARTY-NOTICES.md。
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("kit", {

@@ -3,13 +3,14 @@
   "version": "1.3.0",
   "description": "办公助手：Word/PDF 离线转换与 PDF 工具箱",
   "main": "electron/main.js",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
     "start": "electron .",
     "fetch:engines": "node scripts/fetch-engines.cjs",
     "build:sidecar": "node scripts/build-sidecar.cjs",
     "verify": "node scripts/verify-sidecar.cjs",
+    "verify:engines": "node scripts/verify-engines.cjs",
     "dist:x86": "node scripts/dist.cjs ia32",
     "dist:x64": "node scripts/dist.cjs x64"
   },

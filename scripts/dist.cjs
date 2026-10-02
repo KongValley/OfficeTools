@@ -67,6 +67,10 @@ const base = {
     { from: `engines/lo${SUFFIX}`, to: "lo" },
     { from: `engines/gs${SUFFIX}`, to: "gs" },
     ...(hasTesseract ? [{ from: `engines/tesseract${SUFFIX}`, to: "tesseract" }] : []),
+    // 许可证随包分发：GPL/AGPL 要求安装包自身携带许可与源码指引
+    { from: path.join(ROOT, "THIRD-PARTY-NOTICES.md"), to: "licenses" },
+    { from: path.join(ROOT, "LICENSE.md"), to: "licenses" },
+    { from: path.join(ROOT, "licenses", "MPL-2.0.txt"), to: "licenses" },
   ],
   forceCodeSigning: false,
   win: {

@@ -4,6 +4,8 @@
  *  office2pdf, pdf2word, pdf_merge, pdf_split, pdf_extract,
  *  pdf_delete, pdf_rotate, pdf_compress, pdf2img, img2pdf,
  *  ocr, encrypt, decrypt, watermark
+ *
+ * 许可证：GPL-3.0-or-later，见仓库根目录 LICENSE.md 与 THIRD-PARTY-NOTICES.md。
  */
 const {
   app, BrowserWindow, ipcMain, dialog, shell,

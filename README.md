@@ -94,14 +94,31 @@ Electron 22 在 **Win7 SP1** 上需要平台更新，否则可能出现黑屏或
 - 安装包本体 ~800MB/个。U 盘拷贝安装即可，也可放内网共享目录/文件服务器。
 - 运行期不请求任何网络；如需换图标/改名，联系维护人员改包。
 
-## 开源许可（摘要）
+## 开源许可
 
-- Electron：MIT
-- LibreOffice：MPL-2.0
-- Ghostscript：AGPL-3.0
-- Tesseract：Apache-2.0
-- PyMuPDF：AGPL-3.0
-- pdf2docx 0.5.8：GPLv3
-- opencv：Apache-2.0；numpy：BSD
+本项目整体以 **GNU General Public License v3.0 or later** 发布，仓库根目录 [`LICENSE.md`](LICENSE.md)。
 
-**内部自用不分发**，上述义务不触发。如未来对单位外分发，先联系维护人员评估 AGPL/GPL 对应义务。
+完整第三方组件清单、许可证、版权归属与对应源码获取方式见
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
+
+摘要：
+
+| 组件 | 许可证 |
+|---|---|
+| 本仓库全部代码 | GPL-3.0-or-later |
+| PyMuPDF | AGPL-3.0 |
+| pdf2docx | GPL-3.0 |
+| Ghostscript | AGPL-3.0 |
+| LibreOffice | MPL-2.0 |
+| Electron | MIT |
+| Tesseract / tessdata | Apache-2.0 |
+| opencv | Apache-2.0 |
+| numpy / lxml | BSD-3-Clause |
+| fonttools / python-docx / fire | MIT / Apache-2.0 |
+
+**公开分发中**（GitHub Releases 提供安装包下载）。按 AGPL/GPL 要求，
+安装包内各引擎自带许可证原文（`lo/license.txt`、`gs/doc/COPYING`、
+`tesseract/doc/LICENSE`、Python site-packages 各 `dist-info` 下的
+`LICENSE`/`COPYING`），本文件与 `THIRD-PARTY-NOTICES.md` 说明其对应源码位置。
+
+如未来新增/替换引擎，先在 `THIRD-PARTY-NOTICES.md` 登记许可证再打包发布。

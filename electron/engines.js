@@ -2,6 +2,7 @@
  * 引擎封装：LibreOffice（soffice） / Python 侧车 / Ghostscript / Tesseract。
  * 路径解析：开发态取仓库根 engines/ staging/；打包后取 process.resourcesPath/。
  * 架构选择：process.arch === 'ia32' → -ia32 目录，否则 -x64。
+ * 许可证：GPL-3.0-or-later，见仓库根目录 LICENSE.md 与 THIRD-PARTY-NOTICES.md。
  */
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");

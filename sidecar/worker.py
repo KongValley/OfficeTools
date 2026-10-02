@@ -4,6 +4,10 @@
 协议：stdin 每行一个 JSON {"id":N,"cmd":"...","args":{...}}，
 stdout 每行回一个 JSON {"id":N,"ok":true,"data":{...}} / {"id":N,"ok":false,"error":"中文消息"}。
 --selftest：跑全套自检（verify-sidecar.mjs 调用）。
+
+许可证：GNU General Public License v3.0 or later（见仓库根目录 LICENSE.md）。
+本文件与 PyMuPDF(AGPL-3.0)、pdf2docx(GPL-3.0) 结合分发，依 GPL-3.0 §13
+以 GPL-3.0-or-later 发布。第三方组件声明见 THIRD-PARTY-NOTICES.md。
 """
 import os
 import sys

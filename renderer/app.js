@@ -1,5 +1,7 @@
 /* 办公助手 renderer：原生 JS，无框架。
  * 左侧导航 7 项 + 右侧页面。文件列表分页（50/页）。任务面板增量更新。
+ *
+ * 许可证：GPL-3.0-or-later，见仓库根目录 LICENSE.md 与 THIRD-PARTY-NOTICES.md。
  */
 (function () {
   "use strict";
@@ -761,7 +763,8 @@
         <div class="row"><button id="set-openlog">打开日志目录</button>
         <button id="set-reset" class="danger">恢复默认设置</button>
         <span class="hint">排障时请把最新日志发给维护人员</span></div>
-      <div class="hint">版本 1.3.0 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div></div>
+      <div class="hint">版本 1.3.0 · 完全离线运行 · 安装包约 800MB（含 LibreOffice/Ghostscript/Tesseract/Python 引擎）</div>
+      <div class="hint">开源许可：GPL-3.0-or-later，第三方声明见安装目录 <code>licenses\THIRD-PARTY-NOTICES.md</code></div></div>
     </div>`;
   }
 
